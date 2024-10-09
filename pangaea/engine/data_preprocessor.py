@@ -31,6 +31,7 @@ class BasePreprocessor():
         raise NotImplementedError
 
     def check_dimension(self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]):
+        """check dimension (C, T, H, W) of data"""
         for k, v in data["image"].items():
             if len(v.shape) != 4:
                 raise AssertionError(f"Image dimension must be 4 (C, T, H, W), Got {str(len(v.shape))}")
@@ -39,6 +40,7 @@ class BasePreprocessor():
            raise AssertionError(f"Target dimension must be 2 (H, W), Got {str(len(data['target'].shape))}")
 
     def check_size(self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]):
+        """check if data size is equal"""
         base_shape = data["image"][list(data["image"].keys())[0]].shape
 
         for k, v in data["image"].items():
@@ -51,16 +53,21 @@ class BasePreprocessor():
 
 
 class Preprocessor(BasePreprocessor):
-    """A series of base preprocessors that preprocess images and targets.
-    Args:
-        preprocessor_cfg:
-        dataset_cfg:
-        encoder_cfg:
-    """
-
-
-    def __init__(self, preprocessor_cfg, dataset_cfg, encoder_cfg) -> None:
+    """A series of base preprocessors that preprocess images and targets."""
+    def __init__(
+            self,
+            preprocessor_cfg,
+            dataset_cfg,
+            encoder_cfg
+    ) -> None:
+        """Build preprocessors defined in preprocessor_cfg.
+        Args:
+            preprocessor_cfg: preprocessor config
+            dataset_cfg: dataset config
+            encoder_cfg: encoder config
+        """
         super().__init__()
+        # initialize the meta statistics/info of the input data and target encoder
         meta = {}
         meta['dataset_img_size'] = dataset_cfg['img_size']
         meta['encoder_input_size'] = encoder_cfg['input_size']
@@ -81,6 +88,7 @@ class Preprocessor(BasePreprocessor):
 
         self.preprocessor = []
 
+        # build the preprocessor and update the meta for the next
         for preprocess in preprocessor_cfg:
             preprocessor = instantiate(preprocess, **meta)
             meta = preprocessor.update_meta(meta)
@@ -89,7 +97,20 @@ class Preprocessor(BasePreprocessor):
     def __call__(
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
-
+        """preprocess images and targets step by step.
+        Args:
+            data (dict): input data.
+        Returns:
+            dict[str, torch.Tensor | dict[str, torch.Tensor]]: output dictionary following the format
+            {"image":
+                {
+                encoder_modality_1: torch.Tensor of shape (C T H W) (T=1 if single timeframe),
+                ...
+                encoder_modality_N: torch.Tensor of shape (C T H W) (T=1 if single timeframe),
+                 },
+            "target": torch.Tensor of shape (H W),
+             "metadata": dict}.
+        """
         self.check_dimension(data)
         for process in self.preprocessor:
             data = process(data)
@@ -127,6 +148,8 @@ class BandFilter(BasePreprocessor):
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         """Filter redundant bands from the data.
+        Args:
+            data (dict): input data.
         Returns:
             dict[str, torch.Tensor | dict[str, torch.Tensor]]: output dictionary following the format
             {"image":
@@ -609,7 +632,9 @@ class RandomResizedCrop(BasePreprocessor):
                  )-> None:
         """Initialize the RandomResizedCrop preprocessor.
                 Args:
-
+                size (int): crop size.
+                scale (list): range of scale of the origin size cropped
+                ratio (list): range of aspect ratio of the origin aspect ratio cropped
                 interpolation (InterpolationMode): Desired interpolation enum defined by
                     :class:`torchvision.transforms.InterpolationMode`.
                 antialias (bool, optional): Whether to apply antialiasing.
@@ -717,7 +742,16 @@ class RandomResizedCropToEncoder(RandomResizedCrop):
                  resize_target: bool = True,
                  **meta
                  ) -> None:
-
+        """Initialize the RandomResizedCropToEncoder preprocessor.
+                Args:
+                scale (list): range of scale of the origin size cropped
+                ratio (list): range of aspect ratio of the origin aspect ratio cropped
+                interpolation (InterpolationMode): Desired interpolation enum defined by
+                    :class:`torchvision.transforms.InterpolationMode`.
+                antialias (bool, optional): Whether to apply antialiasing.
+                resize_target (bool, optional): Whether to resize the target
+                meta: statistics/info of the input data and target encoder
+        """
         size = meta['encoder_input_size']
         super().__init__(size, scale, ratio, interpolation, antialias, resize_target, **meta)
 

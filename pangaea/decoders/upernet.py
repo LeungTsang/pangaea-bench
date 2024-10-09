@@ -300,37 +300,26 @@ class SiamUPerNet(SegUPerNet):
             feature_multiplier=feature_multiplier,
         )
 
-    def encoder_forward(
-        self, img: dict[str, torch.Tensor]
-    ) -> list[dict[str, torch.Tensor]]:
-        if self.encoder.multi_temporal:
-            # Retains the temporal dimension
-            img1 = {k: v[:, :, [0], :, :] for k, v in img.items()}
-            img2 = {k: v[:, :, [1], :, :] for k, v in img.items()}
-
-            # multi_temporal encoder returns features (B C T H W)
-            feat1 = self.encoder(img1).squeeze(-3)
-            feat2 = self.encoder(img2).squeeze(-3)
-
-        else:
-            img1 = {k: v[:, :, 0, :, :] for k, v in img.items()}
-            img2 = {k: v[:, :, 1, :, :] for k, v in img.items()}
-
-            feat1 = self.encoder(img1)
-            feat2 = self.encoder(img2)
-
-        return [feat1, feat2]
-
     def forward(
         self, img: dict[str, torch.Tensor], output_size: torch.Size | None = None
     ) -> torch.Tensor:
         """Forward function for change detection."""
 
+        img1 = {}
+        img2 = {}
+        for k, v in img.items():
+            if v.shape[2] != 2:
+                raise ValueError("SiamUPerNet only accepts image sequences of length 2!" )
+            img1[k] = v[:, :, [0], :, :]
+            img2[k] = v[:, :, [1], :, :]
+
         if not self.finetune:
             with torch.no_grad():
-                feat1, feat2 = self.encoder_forward(img)
+                feat1 = self.encoder(img1)
+                feat2 = self.encoder(img2)
         else:
-            feat1, feat2 = self.encoder_forward(img)
+            feat1 = self.encoder(img1)
+            feat2 = self.encoder(img2)
 
         if self.strategy == "diff":
             feat = [f2 - f1 for f1, f2 in zip(feat1, feat2)]
@@ -410,10 +399,21 @@ class RegUPerNet(Decoder):
             for param in self.encoder.parameters():
                 param.requires_grad = False
 
-        self.neck = Feature2Pyramid(
-            embed_dim=encoder.output_dim, rescales=[4, 2, 1, 0.5]
-        )
+        self.input_layers = self.encoder.output_layers
+        self.input_layers_num = len(self.input_layers)
 
+        self.in_channels = self.encoder.output_dim
+
+        if self.encoder.pyramid_features:
+            rescales = [1 for _ in range(self.input_layers_num)]
+        else:
+            scales = [4, 2, 1, 0.5]
+            rescales = [scales[int(i / self.input_layers_num * 4)] for i in range(self.input_layers_num)]
+
+        self.neck = Feature2Pyramid(
+            embed_dim=self.in_channels,
+            rescales=rescales,
+        )
         self.align_corners = False
 
         self.in_channels = [encoder.output_dim for _ in range(4)]

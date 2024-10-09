@@ -114,25 +114,9 @@ class CROMA_SAR_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_size: int,
-        input_bands: dict[str, list[str]],
-        output_layers: int | list[int],
-        naive_multi_forward_mode: str,
-        download_url: str,
+        **kwargs
     ):
-        super().__init__(
-            model_name="croma_sar",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=768,
-            output_dim=768,
-            multi_temporal=False,
-            multi_temporal_fusion=False,
-            naive_multi_forward_mode=naive_multi_forward_mode,
-            download_url=download_url,
-        )
+        super().__init__(**kwargs)
 
 
         self.num_patches = int((self.input_size / self.patch_size) ** 2)
