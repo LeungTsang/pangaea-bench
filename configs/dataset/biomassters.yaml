@@ -9,7 +9,7 @@ multi_temporal: 12
 multi_modal: True
 
 # classes
-ignore_index: -1
+ignore_index: null
 num_classes: 1
 classes:
   - regression

@@ -1,10 +1,29 @@
 _target_: pangaea.encoders.croma_encoder.CROMA_OPTICAL_Encoder
+
+#---------Model Specific Arguments--------
+
+#---------Required Arguments--------
+
+#model weight
+model_name: croma_optical
 encoder_weights: ./pretrained_models/CROMA_large.pt
 download_url: https://huggingface.co/antofuller/CROMA/resolve/main/CROMA_large.pt
 
-input_size: 120  # the paper uses 120
-size: 'large'
+#transformer
+input_size: 120
+patch_size: 8
+embed_dim: 1024
+depth: 24
+num_heads: 16
+has_cls_token: False
 
+#features
+pyramid_features: False
+multi_temporal: False
+multi_temporal_fusion: False
+naive_multi_forward_mode: 'loop'
+
+#channels
 input_bands:
   optical:
     - B1
@@ -24,3 +43,4 @@ output_layers:
   - 5
   - 7
   - 11
+output_dim: 1024

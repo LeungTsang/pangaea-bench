@@ -1,15 +1,31 @@
 _target_: pangaea.encoders.remoteclip_encoder.RemoteCLIP_Encoder
+
+#---------Model Specific Arguments--------
+
+mlp_ratio: 4.0
+
+#---------Required Arguments--------
+
+#model weight
+model_name: remoteclip
 encoder_weights: ./pretrained_models/RemoteCLIP-ViT-B-32.pt
 download_url: https://huggingface.co/chendelong/RemoteCLIP/resolve/main/RemoteCLIP-ViT-B-32.pt
 
+#transformer
 embed_dim: 768
 input_size: 224
-layers: 12
-width: 768
-head_width: 64
+depth: 12
+num_heads: 12
 patch_size: 32
-mlp_ratio: 4.0
+has_cls_token: True
 
+#features
+pyramid_features: False
+multi_temporal: False
+multi_temporal_fusion: False
+naive_multi_forward_mode: 'loop'
+
+#channels
 input_bands:
   optical:
     - B4
@@ -21,3 +37,5 @@ output_layers:
   - 5
   - 7
   - 11
+
+output_dim: 768

@@ -1,16 +1,6 @@
 _target_: pangaea.encoders.dofa_encoder.DOFA_Encoder
-encoder_weights: ./pretrained_models/DOFA_ViT_base_e100.pth
-download_url: https://huggingface.co/XShadow/DOFA/resolve/main/DOFA_ViT_base_e100.pth
 
-embed_dim: 768
-input_size: 224
-patch_size: 16
-depth: 12
-num_heads: 12
-mlp_ratio: 4
-use_norm: False
-
-input_bands: ${dataset.bands}
+#---------Model Specific Arguments--------
 
 wave_list:
   optical:
@@ -35,9 +25,35 @@ wave_list:
     DSC_VV: 3.75
     DSC_VH: 3.75
     VV-VH: 3.75
+
+#---------Required Arguments--------
+
+#model weight
+model_name: dofa
+encoder_weights: ./pretrained_models/DOFA_ViT_base_e100.pth
+download_url: https://huggingface.co/XShadow/DOFA/resolve/main/DOFA_ViT_base_e100.pth
+
+#transformer
+input_size: 224
+patch_size: 16
+embed_dim: 768
+depth: 12
+num_heads: 16
+has_cls_token: True
+
+#features
+pyramid_features: False
+multi_temporal: False
+multi_temporal_fusion: False
+naive_multi_forward_mode: 'loop'
+
+#channels
+input_bands: ${dataset.bands}
   
 output_layers:
   - 3
   - 5
   - 7
   - 11
+
+output_dim: 768

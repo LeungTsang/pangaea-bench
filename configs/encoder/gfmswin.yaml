@@ -1,21 +1,43 @@
 _target_: pangaea.encoders.gfmswin_encoder.GFMSwin_Encoder
+
+#---------Model Specific Arguments--------
+
+in_chans: 3
+depths_per_layer:
+  - 2
+  - 2
+  - 18
+  - 2
+num_heads_per_layer:
+  - 4
+  - 8
+  - 16
+  - 32
+window_size: 6
+mlp_ratio: 4
+#only_output_last: True
+
+
+#---------Required Arguments--------
+model_name: gfm_swin
 encoder_weights: ./pretrained_models/gfm.pth
 download_url: null
 
-input_size: 192
-in_chans: 3  
-t_patch_size: 3
-depth: 12
-embed_dim: 128
-output_dim: 1024
-img_size: 192    # fixed to 192 to avoid interpolation in checkpoints which leads to drop in performance
-depths: [ 2, 2, 18, 2 ]  
-num_heads: [ 4, 8, 16, 32 ]
-window_size: 6
+#transformer
+input_size: 192 # fixed to 192 to avoid interpolation in checkpoints which leads to drop in performance
 patch_size: 4
-mlp_ratio: 4
-only_output_last: True
+embed_dim: 128
+depth: 4
+num_heads: null
+has_cls_token: False
 
+#features
+pyramid_features: True
+multi_temporal: False
+multi_temporal_fusion: False
+naive_multi_forward_mode: 'loop'
+
+#channels
 input_bands:
   optical:
     - B4
@@ -27,4 +49,19 @@ output_layers:
   - 1
   - 2
   - 3
+
+output_dim:
+  - 256
+  - 512
+  - 1024
+  - 1024
+
+
+
+
+
+
+
+
+
 

@@ -1,18 +1,36 @@
 _target_: pangaea.encoders.prithvi_encoder.Prithvi_Encoder
+
+#---------Model Specific Arguments--------
+
+num_frames: ${dataset.multi_temporal}
+tubelet_size: 1
+mlp_ratio: 4
+norm_layer:
+  _target_: hydra.utils.get_class
+  path: torch.nn.LayerNorm
+
+#---------Required Arguments--------
+
+#model weight
+model_name: Prithvi
 encoder_weights: ./pretrained_models/Prithvi_100M.pt
 download_url: https://huggingface.co/ibm-nasa-geospatial/Prithvi-100M/resolve/main/Prithvi_100M.pt?download=true
 
+#transformer
 embed_dim: 768
 input_size: 224
-in_chans: 6
 patch_size: 16
 num_heads: 12
 depth: 12
-mlp_ratio: 4
-tubelet_size: 1
+has_cls_token: True
 
-num_frames: ${dataset.multi_temporal}
+#features
+pyramid_features: False
+multi_temporal: True
+multi_temporal_fusion: False
+naive_multi_forward_mode: 'loop'
 
+#channels
 input_bands:
   optical:
     - B2
@@ -27,3 +45,5 @@ output_layers:
   - 5
   - 7
   - 11
+
+output_dim: 768

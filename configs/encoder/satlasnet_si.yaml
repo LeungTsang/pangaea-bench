@@ -1,19 +1,32 @@
-
 _target_: pangaea.encoders.satlasnet_encoder.SatlasNet_Encoder
-encoder_weights: null
-download_url: null
-model_identifier: Sentinel2_SwinB_SI_MS  # Single Image Multi-Spectral 
-fpn: False
-input_size: 128
-output_dim: 1024
 
+#---------Model Specific Arguments--------
+
+fpn: False
+backbone_arch: swinb
+
+#---------Required Arguments--------
+model_name: satlasnet_sentinel2_swinb_si_ms
+encoder_weights: ./pretrained_models/sentinel2_swinb_si_ms.pth
+download_url: https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_swinb_si_ms.pth
+
+#transformer
+embed_dim: 128
+input_size: 128
+depth: 4
+num_heads: null
+patch_size: 4
+has_cls_token: False
+
+#features
+pyramid_features: True
+multi_temporal: True
+multi_temporal_fusion: True
+naive_multi_forward_mode: 'loop'
+
+#channels
 input_bands:
   optical:
-    # - B4
-    # - B3
-    # - B2
-
-    #MS Bands 
     - B2
     - B3
     - B4
@@ -23,3 +36,9 @@ input_bands:
     - B8
     - B11
     - B12
+
+output_dim:
+  - 128
+  - 256
+  - 512
+  - 1024

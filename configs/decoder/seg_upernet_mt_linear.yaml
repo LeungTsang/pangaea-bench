@@ -9,3 +9,8 @@ finetune: ${finetune}
 # to adapt
 channels: 512
 multi_temporal_strategy: linear
+pool_scales:
+  - 1
+  - 2
+  - 3
+  - 6

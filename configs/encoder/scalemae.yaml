@@ -1,18 +1,30 @@
 _target_: pangaea.encoders.scalemae_encoder.ScaleMAE_Encoder
+#---------Model Specific Arguments--------
+
+
+input_res: 1.
+mlp_ratio: 4
+qkv_bias: True
+
+#---------Required Arguments--------
+model_name: scalemae
 encoder_weights:  ./pretrained_models/scalemae-vitlarge-800.pth
 download_url: https://github.com/bair-climate-initiative/scale-mae/releases/download/base-800/scalemae-vitlarge-800.pth
 
+
 embed_dim: 1024
 input_size: 224
-
-in_chans: 3
 patch_size: 16
 depth: 24
 num_heads: 16
-mlp_ratio: 4
-qkv_bias: True
-  
-input_res: 1.
+has_cls_token: True
+
+
+pyramid_features: False
+multi_temporal: False
+multi_temporal_fusion: False
+naive_multi_forward_mode: 'loop'
+
 
 input_bands:
   optical:
@@ -25,3 +37,5 @@ output_layers:
   - 11
   - 15
   - 23
+
+output_dim: 1024

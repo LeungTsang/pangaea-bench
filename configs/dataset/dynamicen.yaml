@@ -33,6 +33,7 @@ sample_dates:
   - '15'
   - '20'
   - '25'
+
 # data stats
 bands:
   optical:

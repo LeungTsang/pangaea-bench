@@ -4,3 +4,9 @@ channels: 512
 encoder: null
 num_classes: ${dataset.num_classes}
 finetune: ${finetune}
+
+pool_scales:
+  - 1
+  - 2
+  - 3
+  - 6
