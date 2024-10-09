@@ -164,7 +164,7 @@ def main(cfg: DictConfig) -> None:
             num_workers=cfg.num_workers,
             pin_memory=True,
             # persistent_workers=True causes memory leak
-            persistent_workers=True,
+            persistent_workers=False,
             worker_init_fn=seed_worker,
             generator=get_generator(cfg.seed),
             drop_last=True,
