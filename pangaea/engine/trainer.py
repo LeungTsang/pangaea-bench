@@ -50,6 +50,7 @@ class Trainer:
             ckpt_interval (int): interval to save the checkpoint.
             eval_interval (int): interval to evaluate the model.
             log_interval (int): interval to log the training information.
+            best_metric_key (str): metric that determines best checkpoints.
         """
         self.rank = int(os.environ["RANK"])
         self.criterion = criterion
@@ -334,6 +335,7 @@ class SegTrainer(Trainer):
         ckpt_interval: int,
         eval_interval: int,
         log_interval: int,
+        best_metric_key: str
     ):
         """Initialize the Trainer for segmentation task.
         Args:
@@ -350,7 +352,7 @@ class SegTrainer(Trainer):
             use_wandb (bool): whether to use wandb for logging.
             ckpt_interval (int): interval to save the checkpoint.
             eval_interval (int): interval to evaluate the model.
-            log_interval (int): interval to log the training information.
+            best_metric_key (str): metric that determines best checkpoints.
         """
         super().__init__(
             model=model,
@@ -367,13 +369,13 @@ class SegTrainer(Trainer):
             ckpt_interval=ckpt_interval,
             eval_interval=eval_interval,
             log_interval=log_interval,
+            best_metric_key=best_metric_key
         )
 
         self.training_metrics = {
-            name: RunningAverageMeter(length=100) for name in ["Acc", "mAcc", "mIoU"]
+            name: RunningAverageMeter(length=self.batch_per_epoch) for name in ["Acc", "mAcc", "mIoU"]
         }
         self.best_metric = float("-inf")
-        self.best_metric_key = "mIoU"
         self.best_metric_comp = operator.gt
 
     def compute_loss(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -458,6 +460,7 @@ class RegTrainer(Trainer):
         ckpt_interval: int,
         eval_interval: int,
         log_interval: int,
+        best_metric_key: str
     ):
         """Initialize the Trainer for regression task.
         Args:
@@ -475,6 +478,7 @@ class RegTrainer(Trainer):
             ckpt_interval (int): interval to save the checkpoint.
             eval_interval (int): interval to evaluate the model.
             log_interval (int): interval to log the training information.
+            best_metric_key (str): metric that determines best checkpoints.
         """
         super().__init__(
             model=model,
@@ -494,10 +498,9 @@ class RegTrainer(Trainer):
         )
 
         self.training_metrics = {
-            name: RunningAverageMeter(length=100) for name in ["MSE"]
+            name: RunningAverageMeter(length=self.batch_per_epoch) for name in ["MSE"]
         }
         self.best_metric = float("inf")
-        self.best_metric_key = "MSE"
         self.best_metric_comp = operator.lt
 
     def compute_loss(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
