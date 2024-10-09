@@ -591,12 +591,8 @@ class GFMSwin_Encoder(Encoder):
         (https://arxiv.org/pdf/2103.14030)
 
     Args:
-        img_size (int | tuple(int)): Input image size. Default 224
-        patch_size (int | tuple(int)): Patch size. Default: 4
-        in_chans (int): Number of input image channels. Default: 3
-        embed_dim (int): Patch embedding dimension. Default: 96
-        depths (tuple(int)): Depth of each Swin Transformer layer.
-        num_heads (tuple(int)): Number of attention heads in different layers.
+        depths_per_layer (tuple(int)): Depth of each Swin Transformer layer.
+        num_heads_per_layer (tuple(int)): Number of attention heads in different layers.
         window_size (int): Window size. Default: 7
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim. Default: 4
         qkv_bias (bool): If True, add a learnable bias to query, key, value. Default: True
@@ -608,11 +604,27 @@ class GFMSwin_Encoder(Encoder):
         ape (bool): If True, add absolute position embedding to the patch embedding. Default: False
         patch_norm (bool): If True, add normalization after patch embedding. Default: True
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False
+        **kwargs : base encoder parameters.
+            model_name (str): name of the model.
+            encoder_weights (str | Path): path to the encoder weights.
+            download_url (str): url to download the model.
+            input_size (int): expected input_size of the transformer.
+            patch_size (int): patch size of the transformer.
+            embed_dim (int): embedding dimension of the transformer.
+            depth (int): number of layers.
+            num_heads (int): number of attention heads.
+            has_cls_token (bool): whether the transformer has a CLS token or not.
+            pyramid_features (bool): whether the encoder outputs multi-scale features.
+            multi_temporal (bool): whether the model is multi-temporal or not.
+            multi_temporal_fusion (bool): whether the model is multi-temporal fusion or not.
+            naive_multi_forward_mode (str): for non-multi-temporal models: loop: encode images one by one; batch: in one forward
+            input_bands (dict[str, list[str]]): input bands for each modality.
+            output_layers (list[int]): output layer indices for multi-scale features.
+            output_dim (int | Sequence[int]): output dimension(s) of the transformer.
     """
 
     def __init__(
         self,
-        in_chans=3,
         depths_per_layer=[2, 2, 6, 2],
         num_heads_per_layer=[3, 6, 12, 24],
         window_size=7,
@@ -629,8 +641,6 @@ class GFMSwin_Encoder(Encoder):
         **kwargs,
     ):
         super().__init__(**kwargs)
-
-        self.in_chans = in_chans
 
         self.num_layers = len(depths_per_layer)
         self.ape = ape

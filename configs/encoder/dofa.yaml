@@ -26,6 +26,8 @@ wave_list:
     DSC_VH: 3.75
     VV-VH: 3.75
 
+
+
 #---------Required Arguments--------
 
 #model weight
@@ -49,7 +51,7 @@ naive_multi_forward_mode: 'loop'
 
 #channels
 input_bands: ${dataset.bands}
-  
+
 output_layers:
   - 3
   - 5

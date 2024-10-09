@@ -348,9 +348,8 @@ class SatlasNet_Encoder(Encoder):
 
     def simple_forward(self, image):
         # Define forward pass
-        if not self.multi_temporal:
+        if not isinstance(self.backbone, AggregationBackbone):
             image = self.squeeze_temporal_dimension(image)
-
         x = self.backbone(image["optical"])
 
         if self.fpn:
@@ -360,7 +359,6 @@ class SatlasNet_Encoder(Encoder):
         output = []
         for i in range(len(x)):
             if i in self.output_layers:
-                #print(x[i].shape)
                 output.append(x[i])
 
         return output

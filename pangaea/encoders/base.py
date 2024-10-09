@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import tqdm
 
+from typing import Callable, Dict, List, Optional, Sequence, Union, Tuple
 
 class DownloadProgressBar:
     def __init__(self, text="Downloading..."):
@@ -46,7 +47,6 @@ class Encoder(nn.Module):
         embed_dim: int,
         depth: int,
         num_heads: int,
-        output_dim: int,
         has_cls_token: bool,
         pyramid_features: bool,
         multi_temporal: bool,
@@ -54,24 +54,33 @@ class Encoder(nn.Module):
         naive_multi_forward_mode: str,
         input_bands: dict[str, list[str]],
         output_layers: list[int],
-
+        output_dim: int | Sequence[int],
+        **kwargs
     ) -> None:
         """Initialize the Encoder.
 
         Args:
             model_name (str): name of the model.
-            input_bands (dict[str, list[str]]): list of the input bands for each modality.
-            dictionary with keys as the modality and values as the list of bands.
-            input_size (int): size of the input image.
-            embed_dim (int): dimension of the embedding used by the encoder.
-            output_dim (int): dimension of the embedding output by the encoder, accepted by the decoder.
-            multi_temporal (bool): whether the model is multi-temporal or not.
             encoder_weights (str | Path): path to the encoder weights.
             download_url (str): url to download the model.
+            input_size (int): expected input_size of the transformer.
+            patch_size (int): patch size of the transformer.
+            embed_dim (int): embedding dimension of the transformer.
+            depth (int): number of layers.
+            has_cls_token (bool): whether the transformer has a CLS token or not.
+            pyramid_features (bool): whether the encoder outputs multi-scale features.
+            multi_temporal (bool): whether the model is multi-temporal or not.
+            multi_temporal_fusion (bool): whether the model is multi-temporal fusion or not.
+            naive_multi_forward_mode (str): for non-multi-temporal models: loop: encode images one by one; batch: in one forward
+            input_bands (dict[str, list[str]]): input bands for each modality.
+            output_layers (list[int]): output layer indices for multi-scale features.
+            output_dim (int | Sequence[int]): output dimension(s) of the transformer.
+            **kwargs (dict): additional arguments.
         """
         super().__init__()
         self.model_name = model_name
         self.input_bands = input_bands
+        self.in_chans = sum([len(v) for v in self.input_bands.values()])
         self.input_size = input_size
         self.patch_size = patch_size
         self.embed_dim = embed_dim
@@ -86,6 +95,7 @@ class Encoder(nn.Module):
         self.multi_temporal_fusion = multi_temporal_fusion
         self.naive_multi_forward_mode = naive_multi_forward_mode
         self.download_url = download_url
+        self.__dict__.update(kwargs)
 
         # download_model if necessary
         self.download_model()
@@ -174,18 +184,26 @@ class Encoder(nn.Module):
                 return self.naive_multi_temporal_forward(image)
 
 
+    def enforce_single_temporal(self):
+        self.multi_temporal = False
+        self.multi_temporal_fusion = False
+
     def naive_multi_temporal_forward(self, image: dict[str, torch.Tensor]) -> list[torch.Tensor]:
         b, c, t, h, w = image[list(image.keys())[0]].shape
-
         if self.naive_multi_forward_mode == 'batch':
+            # B, C, T, H, W -> B*T, C, H, W
             image = {k: v.transpose(1, 2).contiguous().view(-1, c, 1, h, w) for k, v in image.items()}
             feats = self.forward(image)
+            # B*T, C, H, W  -> B, C, T, H, W
             feats = [f.view(b, -1, f.shape[1], f.shape[2], f.shape[3]).transpose(1, 2) for f in feats]
         elif self.naive_multi_forward_mode == 'loop':
             feats = []
             for i in range(t):
-                feats.append(self.forward({k: v[:, :, i: i+1, :, :] for k, v in image.items()}))
+                feats.append(self.forward({k: v[:, :, i, :, :].unsqueeze(2) for k, v in image.items()}))
+            # [[img1's layer1, img1's layer2, ...], [img2's layer1, img2's layer2, ...], ...]
+            # -> [[img1's layer1, img2's layer1, ...], [img1's layer2, img2's layer2, ...], ...]
             feats = [list(i) for i in zip(*feats)]
+            # B, C, T, H, W
             feats = [torch.stack(feat_layers, dim=2) for feat_layers in feats]
         else:
             raise NotImplementedError("only support multi-temporal forward mode 'loop' and 'batch'")

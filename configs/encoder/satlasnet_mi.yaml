@@ -2,7 +2,7 @@ _target_: pangaea.encoders.satlasnet_encoder.SatlasNet_Encoder
 
 #---------Model Specific Arguments--------
 
-fpn: True
+fpn: False
 backbone_arch: swinb
 
 #---------Required Arguments--------
@@ -46,6 +46,6 @@ output_layers:
 
 output_dim:
   - 128
-  - 128
-  - 128
-  - 128
+  - 256
+  - 512
+  - 1024

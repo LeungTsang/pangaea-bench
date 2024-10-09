@@ -2,7 +2,6 @@ _target_: pangaea.encoders.gfmswin_encoder.GFMSwin_Encoder
 
 #---------Model Specific Arguments--------
 
-in_chans: 3
 depths_per_layer:
   - 2
   - 2

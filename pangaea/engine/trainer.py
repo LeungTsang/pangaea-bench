@@ -180,12 +180,8 @@ class Trainer:
         suffix: str = "",
     ):
         """Save the model checkpoint.
-
         Args:
-            epoch (int): number of the epoch.
-            is_final (bool, optional): whether is the final checkpoint. Defaults to False.
-            is_best (bool, optional): wheter is the best checkpoint. Defaults to False.
-            checkpoint (dict[str, dict  |  int] | None, optional): already prepared checkpoint dict. Defaults to None.
+            suffix (str): suffix for the checkpoint name
         """
         if self.rank != 0:
             return
@@ -267,14 +263,13 @@ class Trainer:
             batch_idx (int): number of the batch.
             epoch (_type_): number of the epoch.
         """
-        # TO DO: upload to wandb
+        print(epoch)
         left_batch_this_epoch = self.batch_per_epoch - batch_idx
         left_batch_all = (
             self.batch_per_epoch * (self.n_epochs - epoch - 1) + left_batch_this_epoch
         )
-        left_eval_times = (
-            self.n_epochs + 0.5
-        ) // self.eval_interval - self.training_stats["eval_time"].count
+        left_eval_times = ((self.n_epochs - 0.5) // self.eval_interval + 2
+                           - self.training_stats["eval_time"].count)
         left_time_this_epoch = sec_to_hm(
             left_batch_this_epoch * self.training_stats["batch_time"].avg
         )
@@ -282,6 +277,8 @@ class Trainer:
             left_batch_all * self.training_stats["batch_time"].avg
             + left_eval_times * self.training_stats["eval_time"].avg
         )
+        print(self.training_stats["batch_time"].avg, self.training_stats["eval_time"].avg)
+        print(left_batch_this_epoch, left_eval_times, left_time_this_epoch, left_time_all)
 
         basic_info = (
             "Epoch [{epoch}-{batch_idx}/{len_loader}]\t"

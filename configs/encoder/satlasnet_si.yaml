@@ -20,8 +20,8 @@ has_cls_token: False
 
 #features
 pyramid_features: True
-multi_temporal: True
-multi_temporal_fusion: True
+multi_temporal: False
+multi_temporal_fusion: False
 naive_multi_forward_mode: 'loop'
 
 #channels
@@ -36,6 +36,12 @@ input_bands:
     - B8
     - B11
     - B12
+
+output_layers:
+  - 0
+  - 1
+  - 2
+  - 3
 
 output_dim:
   - 128

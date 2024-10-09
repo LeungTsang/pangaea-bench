@@ -17,19 +17,25 @@ class CROMA_OPTICAL_Encoder(Encoder):
     Paper: https://arxiv.org/pdf/2311.00566
     CROMA_OPTICAL_Encoder is a class for extracting features from optical images using CROMA.
     Attributes:
-        output_layers (int | list[int]): The layers of the encoder to output.
-        img_size (int): The size of the input image.
-        embed_dim (int): The embedding dimension of the encoder.
-        encoder_depth (int): The depth of the encoder.
-        num_heads (int): The number of attention heads in the encoder.
-        patch_size (int): The size of the patches to divide the image into.
-        output_dim (int): The output dimension of the encoder.
-        num_patches (int): The number of patches the image is divided into.
-        s2_channels (int): The number of multispectral optical channels.
-        attn_bias (Tensor): The attention bias for the encoder.
-        s2_encoder (ViT): The Vision Transformer model for encoding the optical images.
+        **kwargs : base encoder parameters.
+            model_name (str): name of the model.
+            encoder_weights (str | Path): path to the encoder weights.
+            download_url (str): url to download the model.
+            input_size (int): expected input_size of the transformer.
+            patch_size (int): patch size of the transformer.
+            embed_dim (int): embedding dimension of the transformer.
+            depth (int): number of layers.
+            num_heads (int): number of attention heads.
+            has_cls_token (bool): whether the transformer has a CLS token or not.
+            pyramid_features (bool): whether the encoder outputs multi-scale features.
+            multi_temporal (bool): whether the model is multi-temporal or not.
+            multi_temporal_fusion (bool): whether the model is multi-temporal fusion or not.
+            naive_multi_forward_mode (str): for non-multi-temporal models: loop: encode images one by one; batch: in one forward
+            input_bands (dict[str, list[str]]): input bands for each modality.
+            output_layers (list[int]): output layer indices for multi-scale features.
+            output_dim (int | Sequence[int]): output dimension(s) of the transformer.
     Methods:
-        __init__(encoder_weights: str | Path, input_size: int, input_bands: dict[str, list[str]], output_layers: int | list[int], size="base"):
+        __init__(**kwargs):
             Initializes the CROMA_OPTICAL_Encoder with the given parameters.
         forward(image):
             Performs a forward pass of the encoder on the given image.
@@ -44,7 +50,7 @@ class CROMA_OPTICAL_Encoder(Encoder):
         super().__init__(**kwargs)
 
         self.num_patches = int((self.input_size / self.patch_size) ** 2)
-        self.s2_channels = 12  # fixed at 12 multispectral optical channels
+        self.s2_channels = len(self.input_bands['optical'].keys())  # fixed at 12 multispectral optical channels
         self.attn_bias = get_2dalibi(
             num_heads=self.num_heads, num_patches=self.num_patches
         )
@@ -92,19 +98,25 @@ class CROMA_SAR_Encoder(Encoder):
     Paper: https://arxiv.org/pdf/2311.00566
     CROMA_SAR_Encoder is a class for extracting features from SAR images using CROMA.
     Attributes:
-        output_layers (int | list[int]): The layers of the encoder to output.
-        img_size (int): The size of the input image.
-        embed_dim (int): The embedding dimension of the encoder.
-        encoder_depth (int): The depth of the encoder.
-        num_heads (int): The number of attention heads in the encoder.
-        patch_size (int): The size of the patches to divide the image into.
-        output_dim (int): The output dimension of the encoder.
-        num_patches (int): The number of patches the image is divided into.
-        s1_channels (int): The number of SAR backscatter channels (fixed at 2).
-        attn_bias (Tensor): The attention bias for the encoder.
-        s1_encoder (ViT): The Vision Transformer encoder for SAR images.
+        **kwargs : base encoder parameters.
+            model_name (str): name of the model.
+            encoder_weights (str | Path): path to the encoder weights.
+            download_url (str): url to download the model.
+            input_size (int): expected input_size of the transformer.
+            patch_size (int): patch size of the transformer.
+            embed_dim (int): embedding dimension of the transformer.
+            depth (int): number of layers.
+            num_heads (int): number of attention heads.
+            has_cls_token (bool): whether the transformer has a CLS token or not.
+            pyramid_features (bool): whether the encoder outputs multi-scale features.
+            multi_temporal (bool): whether the model is multi-temporal or not.
+            multi_temporal_fusion (bool): whether the model is multi-temporal fusion or not.
+            naive_multi_forward_mode (str): for non-multi-temporal models: loop: encode images one by one; batch: in one forward
+            input_bands (dict[str, list[str]]): input bands for each modality.
+            output_layers (list[int]): output layer indices for multi-scale features.
+            output_dim (int | Sequence[int]): output dimension(s) of the transformer.
     Methods:
-        __init__(encoder_weights: str | Path, input_size: int, input_bands: dict[str, list[str]], output_layers: int | list[int], size="base"):
+        __init__(**kwargs):
             Initializes the CROMA_SAR_Encoder with the given parameters.
         forward(image: dict) -> list[Tensor]:
             Forward pass of the encoder. Processes the input SAR image and returns the encoded output.
@@ -120,7 +132,7 @@ class CROMA_SAR_Encoder(Encoder):
 
 
         self.num_patches = int((self.input_size / self.patch_size) ** 2)
-        self.s1_channels = 2  # fixed at 2 SAR backscatter channels
+        self.s1_channels = len(self.input_bands['sar'].keys())
         self.attn_bias = get_2dalibi(
             num_heads=self.num_heads, num_patches=self.num_patches
         )
@@ -170,22 +182,25 @@ class CROMA_JOINT_Encoder(Encoder):
     Paper: https://arxiv.org/pdf/2311.00566
     CROMA_JOINT_Encoder is a class for extracting features from optical and SAR images using CROMA.
     Attributes:
-        output_layers (int | list[int]): The layers from which to extract the output.
-        img_size (int): The size of the input image.
-        embed_dim (int): The embedding dimension of the encoder.
-        encoder_depth (int): The depth of the encoder.
-        num_heads (int): The number of attention heads.
-        patch_size (int): The size of the patches.
-        output_dim (int): The output dimension of the encoder.
-        num_patches (int): The number of patches in the image.
-        s1_channels (int): The number of channels in the SAR image (fixed at 2).
-        s2_channels (int): The number of channels in the optical image (fixed at 12).
-        attn_bias (Tensor): The attention bias for the 2D attention mechanism.
-        s1_encoder (ViT): The Vision Transformer encoder for SAR images.
-        s2_encoder (ViT): The Vision Transformer encoder for optical images.
-        cross_encoder (BaseTransformerCrossAttn): The cross-attention encoder.
+        **kwargs : base encoder parameters.
+            model_name (str): name of the model.
+            encoder_weights (str | Path): path to the encoder weights.
+            download_url (str): url to download the model.
+            input_size (int): expected input_size of the transformer.
+            patch_size (int): patch size of the transformer.
+            embed_dim (int): embedding dimension of the transformer.
+            depth (int): number of layers.
+            num_heads (int): number of attention heads.
+            has_cls_token (bool): whether the transformer has a CLS token or not.
+            pyramid_features (bool): whether the encoder outputs multi-scale features.
+            multi_temporal (bool): whether the model is multi-temporal or not.
+            multi_temporal_fusion (bool): whether the model is multi-temporal fusion or not.
+            naive_multi_forward_mode (str): for non-multi-temporal models: loop: encode images one by one; batch: in one forward
+            input_bands (dict[str, list[str]]): input bands for each modality.
+            output_layers (list[int]): output layer indices for multi-scale features.
+            output_dim (int | Sequence[int]): output dimension(s) of the transformer.
     Methods:
-        __init__(encoder_weights: str | Path, input_size: int, input_bands: dict[str, list[str]], output_layers: int | list[int], size="base"):
+        __init__(**kwargs):
             Initializes the CROMA_JOINT_Encoder with the given parameters.
         forward(image: dict[str, Tensor]) -> list[Tensor]:
             Forward pass of the encoder. Takes a dictionary with SAR and optical images and returns the encoded output.
@@ -200,8 +215,8 @@ class CROMA_JOINT_Encoder(Encoder):
         super().__init__(**kwargs)
 
         self.num_patches = int((self.input_size / self.patch_size) ** 2)
-        self.s1_channels = 2  # fixed at 2 SAR backscatter channels
-        self.s2_channels = 12  # fixed at 12 multispectral optical channels
+        self.s1_channels = len(self.input_bands['sar'].keys())
+        self.s2_channels = len(self.input_bands['optical'].keys())
         self.attn_bias = get_2dalibi(
             num_heads=self.num_heads, num_patches=self.num_patches
         )

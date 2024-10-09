@@ -16,15 +16,26 @@ class Prithvi_Encoder(Encoder):
     """
     Paper: https://arxiv.org/pdf/2310.18660
     Attributes:
-        output_layers (int | list[int]): The layers from which to extract the output.
-        img_size (int): The size of the input image.
+        tubelet_size (int): Tubelet size for 3D patch embed
         num_frames (int): The number of frames in the input data.
-        patch_size (int): The size of each patch.
-        in_chans (int): The number of input channels.
-        patch_embed (PatchEmbed): The patch embedding layer.
-        cls_token (nn.Parameter): The class token parameter.
-        pos_embed (nn.Parameter): The positional embedding parameter.
-        blocks (nn.ModuleList): The list of Transformer blocks.
+
+        **kwargs : base encoder parameters.
+            model_name (str): name of the model.
+            encoder_weights (str | Path): path to the encoder weights.
+            download_url (str): url to download the model.
+            input_size (int): expected input_size of the transformer.
+            patch_size (int): patch size of the transformer.
+            embed_dim (int): embedding dimension of the transformer.
+            depth (int): number of layers.
+            num_heads (int): number of attention heads.
+            has_cls_token (bool): whether the transformer has a CLS token or not.
+            pyramid_features (bool): whether the encoder outputs multi-scale features.
+            multi_temporal (bool): whether the model is multi-temporal or not.
+            multi_temporal_fusion (bool): whether the model is multi-temporal fusion or not.
+            naive_multi_forward_mode (str): for non-multi-temporal models: loop: encode images one by one; batch: in one forward
+            input_bands (dict[str, list[str]]): input bands for each modality.
+            output_layers (list[int]): output layer indices for multi-scale features.
+            output_dim (int | Sequence[int]): output dimension(s) of the transformer.
     Methods:
         __init__(self, encoder_weights: str | Path, input_bands: dict[str, list[str]], input_size: int, output_layers: int | list[int], patch_size=16, tubelet_size=1, in_chans=3, embed_dim=1024, depth=24, num_heads=16, mlp_ratio=4., norm_layer=nn.LayerNorm, num_frames=1):
             Initializes the Prithvi_Encoder with the given parameters.
@@ -51,13 +62,14 @@ class Prithvi_Encoder(Encoder):
         super().__init__(**kwargs)
 
         self.num_frames = num_frames
+        self.tubelet_size = tubelet_size
 
         self.in_chans = len(self.input_bands['optical'])
         self.patch_embed = PatchEmbed(
             self.input_size,
             self.patch_size,
             self.num_frames,
-            tubelet_size,
+            self.tubelet_size,
             self.in_chans,
             self.embed_dim,
         )
@@ -151,6 +163,32 @@ class Prithvi_Encoder(Encoder):
                 output.append(out)
 
         return output
+
+    def enforce_single_temporal(self):
+        self.multi_temporal = False
+        self.multi_temporal_fusion = False
+
+        self.patch_embed = PatchEmbed(
+            self.input_size,
+            self.patch_size,
+            1,
+            self.tubelet_size,
+            self.in_chans,
+            self.embed_dim,
+        )
+        num_patches = self.patch_embed.num_patches
+        self.pos_embed = nn.Parameter(
+            torch.zeros(1, num_patches + 1, self.embed_dim), requires_grad=False
+        )
+
+        pos_embed = get_3d_sincos_pos_embed(
+            self.pos_embed.shape[-1], self.patch_embed.grid_size, cls_token=True
+        )
+        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
+
+        # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
+        w = self.patch_embed.proj.weight.data
+        torch.nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
 
 class PatchEmbed(nn.Module):
     """Frames of 2D Images to Patch Embedding

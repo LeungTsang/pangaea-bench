@@ -150,23 +150,30 @@ class DOFA_Encoder(Encoder):
     """
     Paper: https://arxiv.org/pdf/2403.15356
     Attributes:
-        output_layers (int | list[int]): The layers from which to extract the output.
-        img_size (int): The size of the input image.
         wv_planes (int): The number of wavelet planes.
         wave_list (dict[str, dict[str, float]]): A dictionary containing wavelet information for each band.
         return_all_tokens (bool): Whether to return all tokens or not.
-        embed_dim (int): The embedding dimension.
-        patch_size (int): The size of each patch.
-        use_norm (bool): Whether to use normalization or not.
         wv_list (list[float]): A list of wavelet values for each band.
         norm (nn.Module): The normalization layer.
-        patch_embed (Dynamic_MLP_OFA): The patch embedding layer.
-        num_patches (int): The number of patches in the input image.
-        cls_token (nn.Parameter): The class token parameter.
-        pos_embed (nn.Parameter): The positional embedding parameter.
-        blocks (nn.ModuleList): A list of Transformer blocks.
+        **kwargs : base encoder parameters.
+            model_name (str): name of the model.
+            encoder_weights (str | Path): path to the encoder weights.
+            download_url (str): url to download the model.
+            input_size (int): expected input_size of the transformer.
+            patch_size (int): patch size of the transformer.
+            embed_dim (int): embedding dimension of the transformer.
+            depth (int): number of layers.
+            num_heads (int): number of attention heads.
+            has_cls_token (bool): whether the transformer has a CLS token or not.
+            pyramid_features (bool): whether the encoder outputs multi-scale features.
+            multi_temporal (bool): whether the model is multi-temporal or not.
+            multi_temporal_fusion (bool): whether the model is multi-temporal fusion or not.
+            naive_multi_forward_mode (str): for non-multi-temporal models: loop: encode images one by one; batch: in one forward
+            input_bands (dict[str, list[str]]): input bands for each modality.
+            output_layers (list[int]): output layer indices for multi-scale features.
+            output_dim (int | Sequence[int]): output dimension(s) of the transformer.
     Methods:
-        __init__(encoder_weights, input_bands, input_size, embed_dim, output_layers, wave_list, patch_size=16, depth=12, num_heads=16, wv_planes=128, return_all_tokens=True, mlp_ratio=4., use_norm=True, norm_layer=partial(nn.LayerNorm, eps=1e-6)):
+        __init__(wave_list, wv_planes=128, return_all_tokens=True, mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs):
             Initializes the DOFA_Encoder with the given parameters.
         forward(image):
             Forward pass of the encoder. Takes an input image and returns the encoded output.

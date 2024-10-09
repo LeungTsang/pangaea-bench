@@ -246,12 +246,14 @@ class SegMTUPerNet(SegUPerNet):
         self, img: dict[str, torch.Tensor], output_size: torch.Size | None = None
     ) -> torch.Tensor:
 
+        # encode images # B, C, T, H, W -> # B, C, T, H, W or B, C, H, W (native fusion encoders)
         if not self.finetune:
             with torch.no_grad():
                 feats = self.encoder(img)
         else:
             feats = self.encoder(img)
 
+        # multi temporal feature fusion B, C, T, H, W -> B, C, H, W
         if self.multi_temporal_strategy == "linear":
             feats = [self.tmap(feat.permute(0, 1, 3, 4, 2)).squeeze(-1) for feat in feats]
         else:
@@ -290,6 +292,8 @@ class SiamUPerNet(SegUPerNet):
             feature_multiplier = 2
         else:
             raise NotImplementedError
+
+        encoder.enforce_single_temporal()
 
         super().__init__(
             encoder=encoder,

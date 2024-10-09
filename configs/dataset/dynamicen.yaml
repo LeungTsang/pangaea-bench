@@ -5,7 +5,7 @@ download_url: None
 auto_download: False
 
 img_size: 1024
-multi_temporal: 6
+multi_temporal: 2
 multi_modal: False
 
 # classes
@@ -29,10 +29,6 @@ distribution:
 sample_dates:
   - '01'
   - '05'
-  - '10'
-  - '15'
-  - '20'
-  - '25'
 
 # data stats
 bands:
