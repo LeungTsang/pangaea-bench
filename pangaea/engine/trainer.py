@@ -170,7 +170,12 @@ class Trainer:
         metrics, used_time = self.evaluator(self.model, f"epoch {self.cur_epoch}")
         self.training_stats["eval_time"].update(used_time)
         cur_metric = metrics[self.best_metric_key]
-        cur_metric = sum(cur_metric) / len(cur_metric) if isinstance(cur_metric, list) else cur_metric
+        if isinstance(cur_metric, list):
+            # hack
+            if self.model.module.num_classes == 1:
+                cur_metric = cur_metric[0]
+            else:
+                cur_metric = sum(cur_metric) / len(cur_metric) if isinstance(cur_metric, list) else cur_metric
         if self.best_metric_comp(cur_metric, self.best_metric):
             self.best_metric = metrics[self.best_metric_key]
             self.save_model(suffix="best")
@@ -263,7 +268,6 @@ class Trainer:
             batch_idx (int): number of the batch.
             epoch (_type_): number of the epoch.
         """
-        print(epoch)
         left_batch_this_epoch = self.batch_per_epoch - batch_idx
         left_batch_all = (
             self.batch_per_epoch * (self.n_epochs - epoch - 1) + left_batch_this_epoch
@@ -277,8 +281,6 @@ class Trainer:
             left_batch_all * self.training_stats["batch_time"].avg
             + left_eval_times * self.training_stats["eval_time"].avg
         )
-        print(self.training_stats["batch_time"].avg, self.training_stats["eval_time"].avg)
-        print(left_batch_this_epoch, left_eval_times, left_time_this_epoch, left_time_all)
 
         basic_info = (
             "Epoch [{epoch}-{batch_idx}/{len_loader}]\t"
