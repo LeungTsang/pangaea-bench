@@ -1,43 +1,15 @@
 import os
 import numpy as np
-import rasterio
 import torch
-# from torch.utils.data import Dataset
-# from torchvision import transforms
 from datetime import datetime
-# import torchvision.transforms.functional as TF
-# import cv2
 
-# import random
-# from PIL import Image
+from pangaea.datasets.base import RawGeoFMDataset
 
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
-# from utils.registry import DATASET_REGISTRY
-
-# @DATASET_REGISTRY.register()
-class DynamicEarthNet(GeoFMDataset):
+class DynamicEarthNet(RawGeoFMDataset):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
         sample_dates: list,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the DynamicEarthNet dataset.
         Link: https://github.com/aysim/dynnet
@@ -69,26 +41,7 @@ class DynamicEarthNet(GeoFMDataset):
             download_url (str): url to download the dataset.
             auto_download (bool): whether to download the dataset automatically.
         """
-        super(DynamicEarthNet, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor
-        )
+        super(DynamicEarthNet, self).__init__(**kwargs)
 
         self.sample_dates = sample_dates
 
@@ -131,9 +84,6 @@ class DynamicEarthNet(GeoFMDataset):
             'target': label,
             'metadata': {}
         }
-
-        if self.preprocessor is not None:
-            output = self.preprocessor(output)
 
         return output
 

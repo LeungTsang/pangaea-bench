@@ -363,6 +363,8 @@ class RegEvaluator(Evaluator):
 
         tag = f'Evaluating {model_name} on {self.split} set'
 
+        mse = torch.zeros(1, device=self.device)
+
         for batch_idx, data in enumerate(tqdm(self.val_loader, desc=tag)):
             image, target = data['image'], data['target']
             image = {k: v.to(self.device) for k, v in image.items()}
@@ -377,7 +379,10 @@ class RegEvaluator(Evaluator):
             else:
                 raise NotImplementedError((f"Inference mode {self.inference_mode} is not implemented."))
 
-            mse = F.mse_loss(logits, target)
+            mse += F.mse_loss(logits, target, reduction='sum')
+
+        torch.distributed.all_reduce(mse, op=torch.distributed.ReduceOp.SUM)
+        mse = mse / len(self.val_loader.dataset)
 
         metrics = {"MSE" : mse.item(), "RMSE" : torch.sqrt(mse).item()}
         self.log_metrics(metrics)

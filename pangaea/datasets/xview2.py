@@ -15,30 +15,12 @@ import urllib
 import tarfile
 
 from pangaea.datasets.utils import DownloadProgressBar
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.datasets.base import RawGeoFMDataset
 
-class xView2(GeoFMDataset):
+class xView2(RawGeoFMDataset):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the xView2 dataset.
         Link: https://xview2.org/dataset
@@ -71,26 +53,7 @@ class xView2(GeoFMDataset):
             download_url (str): url to download the dataset.
             auto_download (bool): whether to download the dataset automatically.
         """
-        super(xView2, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor
-        )
+        super(xView2, self).__init__(**kwargs)
 
         self.all_files = self.get_all_files()
         
@@ -159,9 +122,6 @@ class xView2(GeoFMDataset):
             'target': msk,
             'metadata': {"filename":fn}
         }
-
-        if self.preprocessor is not None:
-            output = self.preprocessor(output)
 
         return output
 

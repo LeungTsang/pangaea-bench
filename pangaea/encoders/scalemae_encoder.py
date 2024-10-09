@@ -50,59 +50,36 @@ class ScaleMAE_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_size: int,
-        input_bands: dict[str, list[str]],
-        output_layers: int | list[int],
-        download_url: str,
-        embed_dim: int = 1024,
-        patch_size: int = 16,
-        in_chans: int = 3,
-        depth: int = 24,
-        num_heads: int = 16,
         mlp_ratio: float = 4.0,
         qkv_bias: bool = True,
         input_res: float = 1.0,
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        **kwargs
     ):
-        super().__init__(
-            model_name="ScaleMAE",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=embed_dim,
-            output_dim=embed_dim,
-            multi_temporal=False,
-            multi_temporal_fusion=False,
-            download_url=download_url,
-        )
-
-        self.output_layers = output_layers
-
-        self.img_size = input_size
-        self.patch_size = patch_size
+        super().__init__(**kwargs)
 
         self.input_res = torch.tensor([input_res]).float().cpu()
+        self.in_chans = sum([len(v) for v in self.input_bands.values()])
 
         self.patch_embed = PatchEmbedUnSafe(
-            self.img_size, patch_size, in_chans, embed_dim
+            self.input_size, self.patch_size, self.in_chans, self.embed_dim
         )
         # num_patches = self.patch_embed.num_patches
 
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
         # self.pos_embed = nn.Parameter(
         #    torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False
         # )  # fixed sin-cos embedding
         self.blocks = nn.ModuleList(
             [
                 Block(
-                    embed_dim,
-                    num_heads,
+                    self.embed_dim,
+                    self.num_heads,
                     mlp_ratio,
                     qkv_bias=qkv_bias,
                     norm_layer=norm_layer,
                 )
-                for i in range(depth)
+                for i in range(self.depth)
             ]
         )
         # self.norm = norm_layer(embed_dim)
@@ -155,9 +132,8 @@ class ScaleMAE_Encoder(Encoder):
         B, _, h, w = image["optical"].shape
         x = self.patch_embed(image["optical"])
 
-        num_patches = int(
-            (h * w) / (self.patch_embed.patch_size[0] * self.patch_embed.patch_size[1])
-        )
+        num_patches = (h * w) // (self.patch_embed.patch_size[0] * self.patch_embed.patch_size[1])
+
         pos_embed = get_2d_sincos_pos_embed_with_resolution(
             x.shape[-1],
             int(num_patches**0.5),
@@ -174,17 +150,7 @@ class ScaleMAE_Encoder(Encoder):
         for i, blk in enumerate(self.blocks):
             x = blk(x)
             if i in self.output_layers:
-                out = (
-                    x[:, 1:]
-                    .permute(0, 2, 1)
-                    .view(
-                        x.shape[0],
-                        -1,
-                        self.img_size // self.patch_size,
-                        self.img_size // self.patch_size,
-                    )
-                    .contiguous()
-                )
+                out = self.naive_reshape_to_2d(x)
                 output.append(out)
 
         return output

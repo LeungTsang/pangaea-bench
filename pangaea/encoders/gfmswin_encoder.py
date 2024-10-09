@@ -612,17 +612,9 @@ class GFMSwin_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_bands: dict[str, list[str]],
-        input_size: int,
-        output_layers: int | list[int],
-        download_url: str,
-        output_dim: int = 1024,
-        patch_size=4,
         in_chans=3,
-        embed_dim: int = 96,
-        depths=[2, 2, 6, 2],
-        num_heads=[3, 6, 12, 24],
+        depths_per_layer=[2, 2, 6, 2],
+        num_heads_per_layer=[3, 6, 12, 24],
         window_size=7,
         mlp_ratio=4.0,
         qkv_bias=True,
@@ -634,53 +626,35 @@ class GFMSwin_Encoder(Encoder):
         ape=False,
         patch_norm=True,
         use_checkpoint=False,
-        only_output_last=False,
-        # use_norm=False,
         **kwargs,
     ):
-        super().__init__(
-            model_name="gfm_swin",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=embed_dim,
-            output_dim=output_dim,
-            multi_temporal=False,
-            multi_temporal_fusion=False,
-            download_url=download_url,
-        )
+        super().__init__(**kwargs)
 
-        self.model_name = "gfm_swin"
-        self.img_size = input_size
-
-        self.patch_size = patch_size
         self.in_chans = in_chans
 
-        self.num_layers = len(depths)
+        self.num_layers = len(depths_per_layer)
         self.ape = ape
         self.patch_norm = patch_norm
-        self.num_features = int(embed_dim * 2 ** (self.num_layers - 1))
+        self.num_features = int(self.embed_dim * 2 ** (self.num_layers - 1))
         self.mlp_ratio = mlp_ratio
         # self.use_norm = use_norm
-        self.out_dim = output_dim
-        self.only_output_last = only_output_last
+        #self.only_output_last = only_output_last
         # split image into non-overlapping patches
         self.patch_embed = PatchEmbed(
-            img_size=self.img_size,
-            patch_size=patch_size,
+            img_size=self.input_size,
+            patch_size=self.patch_size,
             in_chans=in_chans,
-            embed_dim=embed_dim,
+            embed_dim=self.embed_dim,
             norm_layer=norm_layer if self.patch_norm else None,
         )
         num_patches = self.patch_embed.num_patches
         patches_resolution = self.patch_embed.patches_resolution
         self.patches_resolution = patches_resolution
 
-        self.output_layers = output_layers
         # absolute position embedding
         if self.ape:
             self.absolute_pos_embed = nn.Parameter(
-                torch.zeros(1, num_patches, embed_dim)
+                torch.zeros(1, num_patches, self.embed_dim)
             )
             trunc_normal_(self.absolute_pos_embed, std=0.02)
 
@@ -688,27 +662,27 @@ class GFMSwin_Encoder(Encoder):
 
         # stochastic depth
         dpr = [
-            x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))
+            x.item() for x in torch.linspace(0, drop_path_rate, sum(depths_per_layer))
         ]  # stochastic depth decay rule
 
         # build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
             layer = BasicLayer(
-                dim=int(embed_dim * 2**i_layer),
+                dim=int(self.embed_dim * 2**i_layer),
                 input_resolution=(
                     patches_resolution[0] // (2**i_layer),
                     patches_resolution[1] // (2**i_layer),
                 ),
-                depth=depths[i_layer],
-                num_heads=num_heads[i_layer],
+                depth=depths_per_layer[i_layer],
+                num_heads=num_heads_per_layer[i_layer],
                 window_size=window_size,
                 mlp_ratio=self.mlp_ratio,
                 qkv_bias=qkv_bias,
                 qk_scale=qk_scale,
                 drop=drop_rate,
                 attn_drop=attn_drop_rate,
-                drop_path=dpr[sum(depths[:i_layer]) : sum(depths[: i_layer + 1])],
+                drop_path=dpr[sum(depths_per_layer[:i_layer]) : sum(depths_per_layer[: i_layer + 1])],
                 norm_layer=norm_layer,
                 downsample=PatchMerging if (i_layer < self.num_layers - 1) else None,
                 use_checkpoint=use_checkpoint,
@@ -767,24 +741,10 @@ class GFMSwin_Encoder(Encoder):
         for i, layer in enumerate(self.layers):
             x = layer(x)
             B, L, C = x.shape
-            if not self.only_output_last:
-                if i in self.output_layers:
-                    out = x.reshape(B, C, int(L**0.5), int(L**0.5)).repeat(
-                        1, self.out_dim // C, 1, 1
-                    )
-                    out = out.view(B, self.out_dim, int(L**0.5), int(L**0.5))
-                    output.append(out)
-            else:
-                if i == self.num_layers - 1:
-                    output.extend([x.reshape(B, C, int(L**0.5), int(L**0.5))] * 4)
-
-        # if self.use_norm:
-        #     x = self.norm(x)
-
-        # Only use the last layer
-        # for _ in range(4):
-        #     B, L, C = x.shape
-        #     output.append(x.reshape(B, C, int(L**0.5), int(L**0.5)))
+            if i in self.output_layers:
+                out = self.default_reshape_to_2d(x, feat_size=int(L**0.5))
+                #print(out.shape)
+                output.append(out)
 
         return output
 

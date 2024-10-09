@@ -1,160 +1,13 @@
 # Adapted from: https://github.com/allenai/satlaspretrain_models/
 
 import collections
-from enum import Enum, auto
-from io import BytesIO
 from logging import Logger
-from pathlib import Path
 
-import requests
 import torch
 import torch.nn
 import torchvision
 
 from pangaea.encoders.base import Encoder
-
-
-class Backbone(Enum):
-    SWINB = auto()
-    SWINT = auto()
-    RESNET50 = auto()
-    RESNET152 = auto()
-
-
-SatlasPretrain_weights = {
-    "Sentinel2_SwinB_SI_RGB": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_swinb_si_rgb.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 3,
-        "multi_image": False,
-    },
-    "Sentinel2_SwinB_MI_RGB": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_swinb_mi_rgb.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 3,
-        "multi_image": True,
-    },
-    "Sentinel2_SwinB_SI_MS": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_swinb_si_ms.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 9,
-        "multi_image": False,
-    },
-    "Sentinel2_SwinB_MI_MS": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_swinb_mi_ms.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 9,
-        "multi_image": True,
-    },
-    "Sentinel1_SwinB_SI": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel1_swinb_si.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 2,
-        "multi_image": False,
-    },
-    "Sentinel1_SwinB_MI": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel1_swinb_mi.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 2,
-        "multi_image": True,
-    },
-    "Landsat_SwinB_SI": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/landsat_swinb_si.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 11,
-        "multi_image": False,
-    },
-    "Landsat_SwinB_MI": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/landsat_swinb_mi.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 11,
-        "multi_image": True,
-    },
-    "Aerial_SwinB_SI": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/aerial_swinb_si.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 3,
-        "multi_image": False,
-    },
-    "Aerial_SwinB_MI": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/aerial_swinb_mi.pth?download=true",
-        "backbone": Backbone.SWINB,
-        "num_channels": 3,
-        "multi_image": True,
-    },
-    "Sentinel2_SwinT_SI_RGB": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_swint_si_rgb.pth?download=true",
-        "backbone": Backbone.SWINT,
-        "num_channels": 3,
-        "multi_image": False,
-    },
-    "Sentinel2_SwinT_SI_MS": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_swint_si_ms.pth?download=true",
-        "backbone": Backbone.SWINT,
-        "num_channels": 9,
-        "multi_image": False,
-    },
-    "Sentinel2_SwinT_MI_RGB": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_swint_mi_rgb.pth?download=true",
-        "backbone": Backbone.SWINT,
-        "num_channels": 3,
-        "multi_image": True,
-    },
-    "Sentinel2_SwinT_MI_MS": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_swint_mi_ms.pth?download=true",
-        "backbone": Backbone.SWINT,
-        "num_channels": 9,
-        "multi_image": True,
-    },
-    "Sentinel2_Resnet50_SI_RGB": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_resnet50_si_rgb.pth?download=true",
-        "backbone": Backbone.RESNET50,
-        "num_channels": 3,
-        "multi_image": False,
-    },
-    "Sentinel2_Resnet50_SI_MS": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_resnet50_si_ms.pth?download=true",
-        "backbone": Backbone.RESNET50,
-        "num_channels": 9,
-        "multi_image": False,
-    },
-    "Sentinel2_Resnet50_MI_RGB": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_resnet50_mi_rgb.pth?download=true",
-        "backbone": Backbone.RESNET50,
-        "num_channels": 3,
-        "multi_image": True,
-    },
-    "Sentinel2_Resnet50_MI_MS": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_resnet50_mi_ms.pth?download=true",
-        "backbone": Backbone.RESNET50,
-        "num_channels": 9,
-        "multi_image": True,
-    },
-    "Sentinel2_Resnet152_SI_RGB": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_resnet152_si_rgb.pth?download=true",
-        "backbone": Backbone.RESNET152,
-        "num_channels": 3,
-        "multi_image": False,
-    },
-    "Sentinel2_Resnet152_SI_MS": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_resnet152_si_ms.pth?download=true",
-        "backbone": Backbone.RESNET152,
-        "num_channels": 9,
-        "multi_image": False,
-    },
-    "Sentinel2_Resnet152_MI_RGB": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_resnet152_mi_rgb.pth?download=true",
-        "backbone": Backbone.RESNET152,
-        "num_channels": 3,
-        "multi_image": True,
-    },
-    "Sentinel2_Resnet152_MI_MS": {
-        "url": "https://huggingface.co/allenai/satlas-pretrain/resolve/main/sentinel2_resnet152_mi_ms.pth?download=true",
-        "backbone": Backbone.RESNET152,
-        "num_channels": 9,
-        "multi_image": True,
-    },
-}
 
 
 def adjust_state_dict_prefix(
@@ -416,95 +269,48 @@ class SatlasNet_Encoder(Encoder):
 
     def __init__(
         self,
-        input_bands: dict[str, list[str]],
-        input_size: int,
-        output_dim: int,
-        model_identifier: str,
-        encoder_weights: str | Path,
-        download_url: str,
+        backbone_arch: str,
         fpn=False,
+        **kwargs
     ):
         """
         Initializes a model, based on desired imagery source and model components.
         """
-        super().__init__(
-            model_name="satlas_pretrain",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=768,  # will be overwritten by the backbone
-            output_dim=output_dim,
-            multi_temporal=False if "_SI_" in model_identifier else True,
-            multi_temporal_fusion=False if "_SI_" in model_identifier else True,
-            download_url=download_url,
-        )
+        super().__init__(**kwargs)
 
-        # Validate that the model identifier is supported.
-        self.model_identifier = model_identifier
-        if self.model_identifier not in SatlasPretrain_weights.keys():
-            raise ValueError("Invalid model_identifier. See SatlasPretrain_weights.")
+        self.in_chans = sum([len(v) for v in self.input_bands.values()])
+        self.backbone_arch = backbone_arch
+        backbone_dict = {'swint': SwinBackbone,
+                         'swinb': SwinBackbone,
+                         'resnet50': ResnetBackbone,
+                         'resnet152': ResnetBackbone}
 
-        model_info = SatlasPretrain_weights[self.model_identifier]
-        self.weights_url = model_info["url"]
-        self.in_chans = model_info["num_channels"]
-        self.multi_image = model_info["multi_image"]
-        self.backbone_arch = model_info["backbone"]
+        if backbone_arch not in backbone_dict.keys():
+            raise ValueError("Unsupported backbone architecture.")
+        else:
+            self.backbone = backbone_dict[backbone_arch](self.in_chans, arch=backbone_arch)
 
-        self.out_dim = self.output_dim
+        if self.multi_temporal:
+            self.backbone = AggregationBackbone(self.in_chans, self.backbone)
 
-        self.backbone = self._initialize_backbone(
-            self.in_chans, self.backbone_arch, self.multi_image
-        )
-
-        self.embed_dim = self.backbone.embed_dim
-
-        # Whether or not to feed imagery through the pretrained Feature Pyramid Network after the backbone.
         if fpn:
             self.fpn = FPN(self.backbone.out_channels)
             self.upsample = Upsample(self.fpn.out_channels)
         else:
             self.fpn = None
 
-    def _initialize_backbone(self, num_channels, backbone_arch, multi_image):
-        # Load backbone model according to specified architecture.
-        if backbone_arch == Backbone.SWINB or backbone_arch == "Backbone.SWINB":
-            backbone = SwinBackbone(num_channels, arch="swinb")
-        elif backbone_arch == Backbone.SWINT or backbone_arch == "Backbone.SWINT":
-            backbone = SwinBackbone(num_channels, arch="swint")
-        elif backbone_arch == Backbone.RESNET50 or backbone_arch == "Backbone.RESNET50":
-            backbone = ResnetBackbone(num_channels, arch="resnet50")
-        elif (
-            backbone_arch == Backbone.RESNET152 or backbone_arch == "Backbone.RESNET152"
-        ):
-            backbone = ResnetBackbone(num_channels, arch="resnet152")
-        else:
-            raise ValueError("Unsupported backbone architecture.")
-
-        # If using a model for multi-image, need the Aggretation to wrap underlying backbone model.
-        if self.multi_image:
-            backbone = AggregationBackbone(num_channels, backbone)
-
-        return backbone
-
     def load_encoder_weights(self, logger: Logger) -> None:
         """
         Find and load pretrained SatlasPretrain weights, based on the model_identifier argument.
         Option to load pretrained FPN.
         """
-
-        response = requests.get(self.weights_url)
-        if response.status_code == 200:
-            weights_file = BytesIO(response.content)
-        else:
-            raise Exception(f"Failed to download weights from {self.weights_url}")
-
-        pretrained_model = torch.load(weights_file, map_location=torch.device("cpu"))
+        pretrained_model = torch.load(self.encoder_weights, map_location=torch.device("cpu"))
 
         # If using a model for multi-image, need the Aggretation to wrap underlying backbone model.
         prefix, prefix_allowed_count = None, None
-        if self.backbone_arch in ["Backbone.RESNET50", "Backbone.RESNET152"]:
+        if self.backbone_arch in ["resnet50", "resnet152"]:
             prefix_allowed_count = 0
-        elif self.multi_image:
+        elif self.multi_temporal:
             prefix_allowed_count = 2
         else:
             prefix_allowed_count = 1
@@ -553,8 +359,8 @@ class SatlasNet_Encoder(Encoder):
 
         output = []
         for i in range(len(x)):
-            B, C, H, W = x[i].shape
-            out = x[i].repeat(1, self.out_dim // C, 1, 1)
-            output.append(out)
+            if i in self.output_layers:
+                #print(x[i].shape)
+                output.append(x[i])
 
         return output

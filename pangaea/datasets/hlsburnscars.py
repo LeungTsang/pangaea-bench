@@ -15,31 +15,13 @@ import urllib
 import tarfile
 
 from pangaea.datasets.utils import DownloadProgressBar
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.datasets.base import RawGeoFMDataset
 
 # @DATASET_REGISTRY.register()
-class HLSBurnScars(GeoFMDataset):
+class HLSBurnScars(RawGeoFMDataset):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         
         """Initialize the HLSBurnScars dataset.
@@ -73,27 +55,7 @@ class HLSBurnScars(GeoFMDataset):
             auto_download (bool): whether to download the dataset automatically.
         """
         
-        super(HLSBurnScars, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor
-        )
-
+        super(HLSBurnScars, self).__init__(**kwargs)
 
         self.split_mapping = {'train': 'training', 'val': 'validation', 'test': 'validation'}
 
@@ -148,9 +110,6 @@ class HLSBurnScars(GeoFMDataset):
             'target': target,
             'metadata': {}
         }
-        
-        if self.preprocessor is not None:
-            output = self.preprocessor(output)
 
         return output
 

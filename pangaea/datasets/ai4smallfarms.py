@@ -8,30 +8,12 @@ import torch
 from pyDataverse.api import DataAccessApi, NativeApi
 from tifffile import imread
 
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.datasets.base import RawGeoFMDataset
 
-class AI4SmallFarms(GeoFMDataset):
+class AI4SmallFarms(RawGeoFMDataset):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the AI4SmallFarms dataset.
             Link: https://phys-techsciences.datastations.nl/dataset.xhtml?persistentId=doi:10.17026/dans-xy6-ngg6
@@ -63,31 +45,12 @@ class AI4SmallFarms(GeoFMDataset):
             download_url (str): url to download the dataset.
             auto_download (bool): whether to download the dataset automatically.
         """
-        super(AI4SmallFarms, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor
-        )
+        super(AI4SmallFarms, self).__init__(**kwargs)
 
-        self.root_path = pathlib.Path(root_path)
+        self.root_path = pathlib.Path(self.root_path)
 
-        self.image_dir = self.root_path.joinpath(f"sentinel-2-asia/{split}/images")
-        self.mask_dir = self.root_path.joinpath(f"sentinel-2-asia/{split}/masks")
+        self.image_dir = self.root_path.joinpath(f"sentinel-2-asia/{self.split}/images")
+        self.mask_dir = self.root_path.joinpath(f"sentinel-2-asia/{self.split}/masks")
         self.image_list = sorted(glob(str(self.image_dir.joinpath("*.tif"))))
         self.mask_list = sorted(glob(str(self.mask_dir.joinpath("*.tif"))))
 
@@ -122,8 +85,6 @@ class AI4SmallFarms(GeoFMDataset):
             "metadata": {},
         }
 
-        if self.preprocessor is not None:
-            output = self.preprocessor(output)
 
         return output
 

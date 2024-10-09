@@ -15,53 +15,20 @@ from typing import Callable, Dict, List, Optional, Sequence, Union, Tuple
 import copy
 
 
-def build_preprocessor(preprocessing_cfg, dataset_cfg, encoder_cfg):
-    if preprocessing_cfg is None:
-        return None
-    preprocessor = InitPreprocessor(dataset_cfg, encoder_cfg)
-
-    for preprocess in preprocessing_cfg:
-        preprocessor = instantiate(
-            preprocess, preprocessor=preprocessor
-        )
-
-    return preprocessor
-
 class BasePreprocessor():
-    """Base class for augmentations."""
+    """Base class for preprocessor."""
 
-    def __init__(self, preprocessor: Callable = None) -> None:
-        if isinstance(preprocessor, BasePreprocessor):
-            self.preprocessor = preprocessor
-
-            self.dataset_img_size = copy.deepcopy(preprocessor.dataset_img_size)
-            self.encoder_input_size = copy.deepcopy(preprocessor.encoder_input_size)
-
-            self.dataset_bands = copy.deepcopy(preprocessor.dataset_bands)
-            self.encoder_bands = copy.deepcopy(preprocessor.encoder_bands)
-            self.in_bands = copy.deepcopy(preprocessor.out_bands)
-            self.out_bands = copy.deepcopy(preprocessor.out_bands)
-
-            self.multi_modal = copy.deepcopy(preprocessor.multi_modal)
-            self.multi_temporal = copy.deepcopy(preprocessor.multi_temporal)
-
-            self.data_mean = copy.deepcopy(preprocessor.data_mean)
-            self.data_std = copy.deepcopy(preprocessor.data_std)
-            self.data_min = copy.deepcopy(preprocessor.data_min)
-            self.data_max = copy.deepcopy(preprocessor.data_max)
-
-            self.class_distribution = copy.deepcopy(preprocessor.class_distribution)
-            self.ignore_index = copy.deepcopy(preprocessor.ignore_index)
-
+    def __init__(self,) -> None:
+        return
 
     def __call__(
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
 
-        if self.preprocessor is not None:
-            data = self.preprocessor(data)
+        raise NotImplementedError
 
-        return data
+    def update_meta(self, meta):
+        raise NotImplementedError
 
     def check_dimension(self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]):
         for k, v in data["image"].items():
@@ -83,78 +50,83 @@ class BasePreprocessor():
             raise AssertionError(f"Image size and target size (H, W) must be equal, Got {str(tuple(base_shape[-2:]))} and {str(tuple(data['target'].shape[-2:]))}")
 
 
-class InitPreprocessor(BasePreprocessor):
-    """Base class for augmentations."""
-    def __init__(self, dataset_cfg, encoder_cfg) -> None:
-        self.dataset_img_size = dataset_cfg['img_size']
-        self.encoder_input_size = encoder_cfg['input_size']
+class Preprocessor(BasePreprocessor):
+    """A series of base preprocessors that preprocess images and targets.
+    Args:
+        preprocessor_cfg:
+        dataset_cfg:
+        encoder_cfg:
+    """
 
-        self.dataset_bands = dataset_cfg['bands']
-        self.encoder_bands = encoder_cfg['input_bands']
-        self.in_bands = dataset_cfg['bands']
-        self.out_bands = dataset_cfg['bands']
 
-        self.multi_modal = dataset_cfg['multi_modal']
-        self.multi_temporal = dataset_cfg['multi_temporal']
+    def __init__(self, preprocessor_cfg, dataset_cfg, encoder_cfg) -> None:
+        super().__init__()
+        meta = {}
+        meta['dataset_img_size'] = dataset_cfg['img_size']
+        meta['encoder_input_size'] = encoder_cfg['input_size']
+        meta['dataset_bands'] = dataset_cfg['bands']
+        meta['encoder_bands'] = encoder_cfg['input_bands']
+        meta['multi_modal'] = dataset_cfg['multi_modal']
+        meta['multi_temporal'] = dataset_cfg['multi_temporal']
 
-        self.data_mean = {k: torch.tensor(v) for k, v in dataset_cfg['data_mean'].items()}
-        self.data_std = {k: torch.tensor(v) for k, v in dataset_cfg['data_std'].items()}
-        self.data_min = {k: torch.tensor(v) for k, v in dataset_cfg['data_min'].items()}
-        self.data_max = {k: torch.tensor(v) for k, v in dataset_cfg['data_max'].items()}
+        meta['data_bands'] = dataset_cfg['bands']
+        meta['data_img_size'] = dataset_cfg['img_size']
+        meta['data_mean'] = {k: torch.tensor(v) for k, v in dataset_cfg['data_mean'].items()}
+        meta['data_std'] = {k: torch.tensor(v) for k, v in dataset_cfg['data_std'].items()}
+        meta['data_min'] = {k: torch.tensor(v) for k, v in dataset_cfg['data_min'].items()}
+        meta['data_max'] = {k: torch.tensor(v) for k, v in dataset_cfg['data_max'].items()}
 
-        self.ignore_index = dataset_cfg['ignore_index']
-        self.class_distribution = dataset_cfg['distribution']
+        meta['ignore_index'] = dataset_cfg['ignore_index']
+        meta['class_distribution'] = dataset_cfg['distribution']
 
-        self.preprocessor = None
+        self.preprocessor = []
+
+        for preprocess in preprocessor_cfg:
+            preprocessor = instantiate(preprocess, **meta)
+            meta = preprocessor.update_meta(meta)
+            self.preprocessor.append(preprocessor)
 
     def __call__(
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
 
         self.check_dimension(data)
+        for process in self.preprocessor:
+            data = process(data)
 
         return data
 
+
 class BandFilter(BasePreprocessor):
-    """Intialize the BandFilter.
-    Args:
-        dataset (GeoFMDataset): dataset used.
-        encoder (Encoder): encoder used.
-    """
+
     def __init__(
             self,
-            preprocessor: BasePreprocessor,
+            **meta
     ) -> None:
-        """Intialize the BandAdaptor.
+        """Intialize the BandFilter.
         Args:
-            dataset (GeoFMDataset): dataset used.
-            encoder (Encoder): encoder used.
+            meta: statistics/info of the input data and target encoder
+                data_bands: bands of incoming data
+                encoder_bands: expected bands by encoder
         """
-        super().__init__(preprocessor)
+        super().__init__()
 
-        self.out_bands = {}
-
-        # list of length dataset_n_bands with True if the band is used in the encoder
-        # and is available in the dataset
         self.used_bands_indices = {}
-        for k in self.in_bands.keys():
-            if k not in self.encoder_bands.keys():
+
+        for k in meta['data_bands'].keys():
+            if k not in meta['encoder_bands'].keys():
                 continue
             self.used_bands_indices[k] = torch.tensor(
-                [self.in_bands[k].index(b) for b in self.encoder_bands[k] if b in self.in_bands[k]], dtype=torch.long
+                [meta['data_bands'][k].index(b) for b in meta['encoder_bands'][k] if b in meta['data_bands'][k]], dtype=torch.long
             )
-            self.out_bands[k] = [self.in_bands[k][i.item()] for i in self.used_bands_indices[k]]
-            self.data_mean[k] = preprocessor.data_mean[k][self.used_bands_indices[k]]
-            self.data_std[k] = preprocessor.data_std[k][self.used_bands_indices[k]]
-            self.data_min[k] = preprocessor.data_min[k][self.used_bands_indices[k]]
-            self.data_max[k] = preprocessor.data_max[k][self.used_bands_indices[k]]
+
+        if not self.used_bands_indices:
+            raise ValueError("No nontrivial input bands after BandFilter!")
 
     def __call__(
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         """Filter redundant bands from the data.
-        Args:
-            index (int): index of data.
         Returns:
             dict[str, torch.Tensor | dict[str, torch.Tensor]]: output dictionary following the format
             {"image":
@@ -166,98 +138,119 @@ class BandFilter(BasePreprocessor):
             "target": torch.Tensor of shape (H W),
              "metadata": dict}.
         """
-        data = self.preprocessor(data)
 
-        data["image"] = {k: data["image"][k][self.used_bands_indices[k]] for k in self.out_bands.keys()}
+        data["image"] = {k: data["image"][k][v] for k, v in self.used_bands_indices.items()}
 
         return data
 
+    def update_meta(self, meta):
+        """Tracking the meta statistics/info for next processor."""
+        for k in list(meta['data_bands'].keys()):
+            if k not in self.used_bands_indices.keys():
+                meta['data_bands'].pop(k, None)
+                meta['data_mean'].pop(k, None)
+                meta['data_std'].pop(k, None)
+                meta['data_min'].pop(k, None)
+                meta['data_max'].pop(k, None)
+            else:
+                meta['data_bands'][k] = [meta['data_bands'][k][i.item()] for i in self.used_bands_indices[k]]
+                meta['data_mean'][k] = meta['data_mean'][k][self.used_bands_indices[k]]
+                meta['data_std'][k] = meta['data_std'][k][self.used_bands_indices[k]]
+                meta['data_min'][k] = meta['data_min'][k][self.used_bands_indices[k]]
+                meta['data_max'][k] = meta['data_max'][k][self.used_bands_indices[k]]
+
+        return meta
+
 
 class BandPadding(BasePreprocessor):
-    """Intialize the BandPadding.
-    Args:
-        dataset (GeoFMDataset): dataset used.
-        encoder (Encoder): encoder used.
-        fill_value (float): fill value for padding.
-    """
+
     def __init__(
             self,
-            preprocessor: BasePreprocessor,
-            fill_value: float = 0.0
+            fill_value: float = 0.0,
+            **meta
     ) -> None:
         """Intialize the BandPadding.
         Args:
-            dataset (GeoFMDataset): dataset used.
-            encoder (Encoder): encoder used.
             fill_value (float): fill value for padding.
+            meta: statistics/info of the input data and target encoder
+                data_bands: bands of incoming data
+                encoder_bands: expected bands by encoder
         """
-        super().__init__(preprocessor)
-        self.out_bands = preprocessor.encoder_bands
+        super().__init__()
 
         self.fill_value = fill_value
+        self.data_img_size = meta['data_img_size']
 
-        # list of length dataset_n_bands with True if the band is used in the encoder
-        # and is available in the dataset
-        self.avail_bands_indices, self.used_bands_indices = {}, {}
-        for k in self.encoder_bands:
-            self.avail_bands_indices[k] = torch.tensor(
-                [self.encoder_bands[k].index(b) for b in self.encoder_bands[k] if b in self.in_bands[k]], dtype=torch.long
-            )
-            self.used_bands_indices[k] = torch.tensor(
-                [self.in_bands[k].index(b) for b in self.encoder_bands[k] if b in self.in_bands[k]], dtype=torch.long
-            )
-            size = (len(self.encoder_bands[k]),)
-            self.data_mean[k] = torch.full(size, fill_value=fill_value, dtype=torch.float)
-            self.data_std[k] = torch.ones(size, dtype=torch.float)
-            self.data_min[k] = torch.full(size, fill_value=fill_value, dtype=torch.float)
-            self.data_max[k] = torch.full(size, fill_value=fill_value, dtype=torch.float)
-
-            self.data_mean[k][self.avail_bands_indices[k]] = preprocessor.data_mean[k][self.used_bands_indices[k]]
-            self.data_std[k][self.avail_bands_indices[k]] = preprocessor.data_std[k][self.used_bands_indices[k]]
-            self.data_min[k][self.avail_bands_indices[k]] = preprocessor.data_min[k][self.used_bands_indices[k]]
-            self.data_max[k][self.avail_bands_indices[k]] = preprocessor.data_max[k][self.used_bands_indices[k]]
+        self.encoder_bands = meta['encoder_bands']
+        self.avail_bands_mask, self.used_bands_indices = {}, {}
+        for k in meta['encoder_bands'].keys():
+            if k in meta['data_bands'].keys():
+                self.avail_bands_mask[k] = torch.tensor(
+                    [b in meta['data_bands'][k] for b in meta['encoder_bands'][k]], dtype=torch.bool
+                )
+                self.used_bands_indices[k] = torch.tensor(
+                    [meta['data_bands'][k].index(b) for b in meta['encoder_bands'][k] if b in meta['data_bands'][k]], dtype=torch.long
+                )
+            else:
+                self.avail_bands_mask[k] = torch.zeros(len(meta['encoder_bands'][k]), dtype=torch.bool)
+        if not self.used_bands_indices:
+            raise ValueError("No nontrivial input bands after BandPadding!")
 
     def __call__(
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
+        for k in self.avail_bands_mask.keys():
+            if k in self.used_bands_indices.keys():
+                size = self.avail_bands_mask[k].shape + data["image"][k].shape[1:]
+                padded_image = torch.full(size, fill_value=self.fill_value, dtype=data["image"][k].dtype)
+                padded_image[self.avail_bands_mask[k]] = data["image"][k][self.used_bands_indices[k]]
+            else:
+                reference = data["image"](list(data["image"].keys())[0])
+                size = self.avail_bands_mask[k].shape + reference.shape[1:]
+                padded_image = torch.full(size, fill_value=self.fill_value, dtype=reference.dtype)
 
-        if self.preprocessor is not None:
-            data = self.preprocessor(data)
-        for k, v in data["image"].items():
-            size = [len(self.encoder_bands[k])] + list(v.shape[1:])
-            data["image"][k] = torch.full(size, fill_value=self.fill_value, dtype=v.dtype)
-            data["image"][k][self.avail_bands_indices[k]] = v[self.used_bands_indices[k]]
-
+            data["image"][k] = padded_image
         return data
+
+    def update_meta(self, meta):
+        """Tracking the meta statistics/info for next processor."""
+        meta['data_bands'] = meta['encoder_bands']
+        for k in self.avail_bands_mask.keys():
+            size = self.avail_bands_mask[k].shape
+            meta['data_mean'][k] = torch.full(size, fill_value=self.fill_value, dtype=torch.float)
+            meta['data_std'][k] = torch.ones(size, dtype=torch.float)
+            meta['data_min'][k] = torch.full(size, fill_value=self.fill_value, dtype=torch.float)
+            meta['data_max'][k] = torch.full(size, fill_value=self.fill_value, dtype=torch.float)
+            if self.used_bands_indices[k] is not None:
+                meta['data_mean'][k][self.avail_bands_mask[k]] = meta['data_mean'][k][self.used_bands_indices[k]]
+                meta['data_std'][k][self.avail_bands_mask[k]] = meta['data_std'][k][self.used_bands_indices[k]]
+                meta['data_min'][k][self.avail_bands_mask[k]] = meta['data_min'][k][self.used_bands_indices[k]]
+                meta['data_max'][k][self.avail_bands_mask[k]] = meta['data_max'][k][self.used_bands_indices[k]]
+        return meta
+
 
 class NormalizeMeanStd(BasePreprocessor):
     def __init__(
             self,
-            preprocessor: BasePreprocessor,
-            channel_dim: int = 0
+            **meta,
     ) -> None:
         """Initialize the NormalizeMeanStd.
         Args:
-            dataset (GeoFMDataset): dataset used.
-            encoder (Encoder): encoder used.
+            meta: statistics/info of the input data and target encoder
+                data_mean: global mean of incoming data
+                data_std: global std of incoming data
         """
-        super().__init__(preprocessor)
-        self.data_mean_ = preprocessor.data_mean
-        self.data_std_ = preprocessor.data_std
+        super().__init__()
 
-        self.data_mean = {k: torch.zeros_like(v) for k, v in self.data_mean_.items()}
-        self.data_std = {k: torch.ones_like(v) for k, v in self.data_std_.items()}
-        self.data_min = {k: (v-self.data_mean_[k])/self.data_std_[k] for k, v in preprocessor.data_min.items()}
-        self.data_max = {k: (v-self.data_mean_[k])/self.data_std_[k] for k, v in preprocessor.data_max.items()}
-
-        self.channel_dim = channel_dim
+        self.data_mean = meta['data_mean']
+        self.data_std = meta['data_std']
 
     def __call__(
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         """Apply Mean/Std Normalization to the data.
         Args:
-            index (int): index of data.
+            data (dict): input data.
         Returns:
             dict[str, torch.Tensor | dict[str, torch.Tensor]]: output dictionary following the format
             {"image":
@@ -269,50 +262,104 @@ class NormalizeMeanStd(BasePreprocessor):
             "target": torch.Tensor of shape (H W),
              "metadata": dict}.
         """
-        data = self.preprocessor(data)
 
-        for modality in self.in_bands.keys():
-            statistic_shape = [1] * data["image"][modality].dim()
-            statistic_shape[self.channel_dim] = -1
-            data["image"][modality].sub_(self.data_mean_[modality].view(statistic_shape)).div_(self.data_std_[modality].view(statistic_shape))
+        for k in self.data_mean.keys():
+            data["image"][k].sub_(self.data_mean[k].view(-1, 1, 1, 1)).div_(self.data_std[k].view(-1, 1, 1, 1))
         return data
+
+    def update_meta(self, meta):
+        """Tracking the meta statistics/info for next processor."""
+        meta['data_mean'] = {k: torch.zeros_like(v) for k, v in meta['data_mean'].items()}
+        meta['data_std'] = {k: torch.ones_like(v) for k, v in meta['data_std'].items()}
+        meta['data_min'] = {k: (v - meta['data_mean'][k]) / meta['data_std'][k] for k, v in meta['data_min'].items()}
+        meta['data_max'] = {k: (v - meta['data_mean'][k]) / meta['data_std'][k] for k, v in meta['data_max'].items()}
+
+        return meta
+
+
+class NormalizeMinMax(BasePreprocessor):
+    def __init__(
+            self,
+            **meta,
+    ) -> None:
+        """Initialize the NormalizeMeanStd.
+        Args:
+            meta: statistics/info of the input data and target encoder
+                data_min: global maximum value of incoming data
+                data_sax: global minimum value of incoming data
+        """
+        super().__init__()
+
+        self.data_min = meta['data_min']
+        self.data_max = meta['data_max']
+
+    def __call__(
+        self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
+    ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
+        """Apply Mean/Std Normalization to the data.
+        Args:
+            data (dict): input data.
+        Returns:
+            dict[str, torch.Tensor | dict[str, torch.Tensor]]: output dictionary following the format
+            {"image":
+                {
+                encoder_modality_1: torch.Tensor of shape (C T H W) (T=1 if single timeframe),
+                ...
+                encoder_modality_N: torch.Tensor of shape (C T H W) (T=1 if single timeframe),
+                 },
+            "target": torch.Tensor of shape (H W),
+             "metadata": dict}.
+        """
+
+        for k in self.data_min.keys():
+            size = (-1,) + data["image"][k].shape[1:]
+            data["image"][k].sub_(self.data_min[k].view(size)).div_((self.data_max[k]-self.data_min[k]).view(size))
+        return data
+
+    def update_meta(self, meta):
+        """Tracking the meta statistics/info for next processor."""
+        meta['data_mean'] = {k: (v - meta['data_min'][k]) / (meta['data_max'][k] - meta['data_min'][k]) for k, v in meta['data_mean'].items()}
+        meta['data_std'] = {k: v / (meta['data_max'][k] - meta['data_min'][k]) for k, v in meta['data_std'].items()}
+        meta['data_min'] = {k: torch.zeros_like(v) for k, v in meta['data_mean'].items()}
+        meta['data_max'] = {k: torch.ones_like(v) for k, v in meta['data_std'].items()}
+
+        return meta
 
 
 class RandomCrop(BasePreprocessor):
     def __init__(
         self,
-        preprocessor: BasePreprocessor,
-        size,
+        size: int | Sequence[int],
         pad_if_needed: bool = False,
+        **meta
     ) -> None:
-        """Initialize the RandomCrop augmentation.
+        """Initialize the RandomCrop preprocessor.
         Args:
-            dataset (GeoFMDataset): dataset used.
-            encoder (Encoder): encoder used.
             size (int): crop size.
-            padding (str | None, optional): image padding. Defaults to None.
             pad_if_needed (bool, optional): whether to pad. Defaults to False.
-            fill (int, optional): value for padding. Defaults to 0.
-            padding_mode (str, optional): padding mode. Defaults to "constant".
+            meta: statistics/info of the input data and target encoder
+                data_mean: global mean value of incoming data for potential padding
+                ignore_index: ignore index for potential padding
         """
-        super().__init__(preprocessor)
+        super().__init__()
 
         self.size = tuple(_setup_size(size, error_msg="Please provide only two dimensions (h, w) for size."))
         self.pad_if_needed = pad_if_needed
+        if self.pad_if_needed:
+            self.pad_value = meta['data_mean']
+            self.ignore_index = meta['ignore_index']
 
-    @staticmethod
-    def get_params(input_size: Tuple[int, int], output_size: Tuple[int, int]) -> Tuple[int, int, int, int]:
+    def get_params(self, data: dict) -> Tuple[int, int, int, int]:
         """Get parameters for ``crop`` for a random crop.
 
         Args:
-            input_size (tuple): input size of the data.
-            output_size (tuple): Expected output size of the crop.
+            data (dict): input data.
 
         Returns:
             tuple: params (i, j, h, w) to be passed to ``crop`` for random crop.
         """
-        h, w = input_size
-        th, tw = output_size
+        h, w = data["image"][list(data["image"].keys())[0]].shape[-2:]
+        th, tw = self.size
         if h < th or w < tw:
             raise ValueError(f"Required crop size {(th, tw)} is larger than input image size {(h, w)}")
 
@@ -324,27 +371,27 @@ class RandomCrop(BasePreprocessor):
         return i, j, th, tw
 
     def check_pad(self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]],
-    ) -> Tuple[dict[str, torch.Tensor | dict[str, torch.Tensor]], int, int]:
+    ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         _, t, height, width = data["image"][list(data["image"].keys())[0]].shape
 
         if height < self.size[0] or width < self.size[1]:
             pad_img = max(self.size[0] - height, 0), max(self.size[1] - width, 0)
             height, width = height + 2 * pad_img[0], width + 2 * pad_img[1]
             for k, v in data["image"].items():
-                padded_img = self.preprocessor.data_mean[k].reshape(-1, 1, 1, 1).repeat(1, t, height, width)
+                padded_img = self.pad_value[k].reshape(-1, 1, 1, 1).repeat(1, t, height, width)
                 padded_img[:, :, pad_img[0]:-pad_img[0], pad_img[1]:-pad_img[1]] = v
                 data["image"][k] = padded_img
 
             data["target"] = TF.pad(data["target"], padding=padded_img, fill=self.ignore_index, padding_mode='constant')
 
-        return data, height, width
+        return data
 
     def __call__(
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         """Random crop the data.
         Args:
-            index (int): index of data.
+            data (dict): input data.
         Returns:
             dict[str, torch.Tensor | dict[str, torch.Tensor]]: output dictionary following the format
             {"image":
@@ -356,18 +403,12 @@ class RandomCrop(BasePreprocessor):
             "target": torch.Tensor of shape (H W),
              "metadata": dict}.
         """
-        data = self.preprocessor(data)
         self.check_size(data)
 
         if self.pad_if_needed:
-            data, height, width = self.check_pad(data)
-        else:
-            _, _, height, width = data["image"][list(data["image"].keys())[0]].shape
+            data = self.check_pad(data)
 
-        i, j, h, w = self.get_params(
-            input_size=(height, width),
-            output_size=self.size,
-        )
+        i, j, h, w = self.get_params(data=data)
 
         for k, v in data["image"].items():
             data["image"][k] = TF.crop(v, i, j, h, w)
@@ -375,130 +416,120 @@ class RandomCrop(BasePreprocessor):
         data["target"] = TF.crop(data["target"], i, j, h, w)
 
         return data
+
+    def update_meta(self, meta):
+        """Tracking the meta statistics/info for next processor."""
+        meta['data_img_size'] = self.size[0]
+        return meta
+
 
 class RandomCropToEncoder(RandomCrop):
     def __init__(
         self,
-        preprocessor: BasePreprocessor,
         pad_if_needed: bool = False,
+        **meta
     ) -> None:
-        """Initialize the RandomCropToEncoder augmentation.
-        Apply RandomCrop to the encoder input size.
+        """Initialize the RandomCropToEncoder preprocessor.
         Args:
-            dataset (GeoFMDataset): dataset used.
-            encoder (Encoder): encoder used.
-            padding (str | None, optional): image padding. Defaults to None.
-            pad_if_needed (bool, optional): whether to pad or not. Defaults to False.
-            fill (int, optional): value for padding. Defaults to 0.
-            padding_mode (str, optional): padding mode. Defaults to "constant".
+            size (int): crop size.
+            pad_if_needed (bool, optional): whether to pad. Defaults to False.
+            meta: statistics/info of the input data and target encoder
+                data_mean: global mean value of incoming data for potential padding
+                ignore_index: ignore index for potential padding
         """
-        size = preprocessor.encoder_input_size
+        size = meta['encoder_input_size']
         super().__init__(
-            preprocessor, size, pad_if_needed
+            size, pad_if_needed, **meta
         )
 
-
-class ImportanceRandomCrop(RandomCrop):
+class FocusRandomCrop(RandomCrop):
     def __init__(
         self,
-        preprocessor: BasePreprocessor,
-        size,
+        size: int,
         pad_if_needed: bool = False,
-        num_trials: int = 10,
+        **meta
     ) -> None:
-        """Initialize the RandomCrop augmentation.
+        """Initialize the FocusRandomCrop preprocessor.
         Args:
-            dataset (GeoFMDataset): dataset used.
-            encoder (Encoder): encoder used.
             size (int): crop size.
-            padding (str | None, optional): image padding. Defaults to None.
             pad_if_needed (bool, optional): whether to pad. Defaults to False.
-            fill (int, optional): value for padding. Defaults to 0.
-            padding_mode (str, optional): padding mode. Defaults to "constant".
+            meta: statistics/info of the input data and target encoder
+                data_mean: global mean value of incoming data for potential padding
+                ignore_index: ignore index for potential padding
         """
-        super().__init__(preprocessor)
+        super().__init__(
+            size,
+            pad_if_needed,
+            **meta)
 
-        self.size = tuple(_setup_size(size, error_msg="Please provide only two dimensions (h, w) for size."))
-        self.pad_if_needed = pad_if_needed
-        self.num_trials = num_trials
-        self.class_weight = 1 / self.class_distribution
+    def get_params(self, data: dict) -> Tuple[int, int, int, int]:
+        """Get parameters for ``crop`` for a random crop.
 
-
-    def __call__(
-        self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
-    ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
-        """Random crop the data.
         Args:
-            index (int): index of data.
+            data (dict): input data.
         Returns:
-            dict[str, torch.Tensor | dict[str, torch.Tensor]]: output dictionary following the format
-            {"image":
-                {
-                encoder_modality_1: torch.Tensor of shape (C T H W) (T=1 if single timeframe),
-                ...
-                encoder_modality_N: torch.Tensor of shape (C T H W) (T=1 if single timeframe),
-                 },
-            "target": torch.Tensor of shape (H W),
-             "metadata": dict}.
+            tuple: params (i, j, h, w) to be passed to ``crop`` for random crop.
         """
-        data = self.preprocessor(data)
-        self.check_size(data)
 
-        if self.pad_if_needed:
-            data, height, width = self.check_pad(data)
-        else:
-            _, _, height, width = data["image"][list(data["image"].keys())[0]].shape
+        h, w = data["target"].shape
+        th, tw = self.size
 
-        valid = data["target"] != self.ignore_index
-        weight_map = torch.full(size=data["target"].shape, fill_value=1e-6, dtype=torch.float)
-        weight_map[valid] = self.class_weight[data["target"][valid]]
+        if h < th or w < tw:
+            raise ValueError(f"Required crop size {(th, tw)} is larger than input image size {(h, w)}")
 
-        crop_candidates = [self.get_params(input_size=(height, width), output_size=self.size) for _ in range(self.num_trials)]
-        crop_weights = [weight_map[c[0]:c[0]+c[2], c[1]:c[1]+c[3]].sum()/(c[2]*c[3]) for c in crop_candidates]
+        if w == tw and h == th:
+            return 0, 0, h, w
 
-        crop_idx = np.random.choice(self.num_trials, p=np.asarray(crop_weights))
-        i, j, h, w = crop_candidates[crop_idx]
+        valid_map = data["target"] != self.ignore_index
+        idx = torch.arange(0, h*w)[valid_map.flatten()]
+        sample = idx[random.randint(0, idx.shape[0] - 1)]
+        y, x = sample // w, sample % w
 
-        for k, v in data["image"].items():
-            data["image"][k] = TF.crop(v, i, j, h, w)
+        i = random.randint(max(0, y - th), min(y, h - th + 1))
+        j = random.randint(max(0, x - tw), min(x, w - tw + 1))
 
-        data["target"] = TF.crop(data["target"], i, j, h, w)
-
-        return data
+        return i, j, th, tw
 
 
-class ImportanceRandomCropToEncoder(ImportanceRandomCrop):
+
+class FocusRandomCropToEncoder(FocusRandomCrop):
     def __init__(
         self,
-        preprocessor: BasePreprocessor,
         pad_if_needed: bool = False,
-        num_trials: int = 10,
+        **meta
     ) -> None:
-        """Initialize the RandomCropToEncoder augmentation.
-        Apply RandomCrop to the encoder input size.
+        """Initialize the FocusRandomCropToEncoder preprocessor.
         Args:
-            dataset (GeoFMDataset): dataset used.
-            encoder (Encoder): encoder used.
-            padding (str | None, optional): image padding. Defaults to None.
-            pad_if_needed (bool, optional): whether to pad or not. Defaults to False.
-            fill (int, optional): value for padding. Defaults to 0.
-            padding_mode (str, optional): padding mode. Defaults to "constant".
+            pad_if_needed (bool, optional): whether to pad. Defaults to False.
+            meta: statistics/info of the input data and target encoder
+                data_mean: global mean value of incoming data for potential padding
+                ignore_index: ignore index for potential padding
         """
-        size = preprocessor.encoder_input_size
+        size = meta['encoder_input_size']
         super().__init__(
-            preprocessor, size, pad_if_needed, num_trials
+            size, pad_if_needed, **meta
         )
 
 class Resize(BasePreprocessor):
     def __init__(
             self,
-            preprocessor: BasePreprocessor,
-            size,
+            size: int | Sequence[int],
             interpolation=T.InterpolationMode.BILINEAR,
             antialias: Optional[bool] = True,
             resize_target: bool = True,
+            **meta
     ) -> None:
-        super().__init__(preprocessor)
+        """Initialize the Resize preprocessor.
+        Args:
+        size (sequence or int): Desired output size. If size is a sequence like
+            (h, w), output size will be matched to this.
+        interpolation (InterpolationMode): Desired interpolation enum defined by
+            :class:`torchvision.transforms.InterpolationMode`.
+        antialias (bool, optional): Whether to apply antialiasing.
+        resize_target (bool, optional): Whether to resize the target
+        meta: statistics/info of the input data and target encoder
+        """
+        super().__init__()
 
         if not isinstance(size, (int, Sequence)):
             raise TypeError(f"Size should be int or sequence. Got {type(size)}")
@@ -516,9 +547,20 @@ class Resize(BasePreprocessor):
     def __call__(
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
-
-        data = self.preprocessor(data)
-
+        """Resize the data.
+        Args:
+            data (dict): input data.
+        Returns:
+            dict[str, torch.Tensor | dict[str, torch.Tensor]]: output dictionary following the format
+            {"image":
+                {
+                encoder_modality_1: torch.Tensor of shape (C T H W) (T=1 if single timeframe),
+                ...
+                encoder_modality_N: torch.Tensor of shape (C T H W) (T=1 if single timeframe),
+                 },
+            "target": torch.Tensor of shape (H W),
+             "metadata": dict}.
+        """
         for k, v in data["image"].items():
             data["image"][k] = TF.resize(data["image"][k], self.size, interpolation=self.interpolation, antialias=self.antialias)
 
@@ -530,33 +572,51 @@ class Resize(BasePreprocessor):
 
         return data
 
+    def update_meta(self, meta):
+        """Tracking the meta statistics/info for next processor."""
+        meta['data_img_size'] = self.size[0]
+        return meta
+
+
 class ResizeToEncoder(Resize):
     def __init__(self,
-                 preprocessor: BasePreprocessor,
                  interpolation=T.InterpolationMode.BILINEAR,
                  antialias: Optional[bool] = True,
                  resize_target: bool = True,
+                 **meta
                  ) -> None:
-        """Initialize the ResizeToEncoder augmentation.
-        Resize input data to the encoder input size.
+        """Initialize the ResizeToEncoder preprocessor.
         Args:
-            dataset (GeoFMDataset): dataset used.
-            encoder (Encoder): encoder used.
+        interpolation (InterpolationMode): Desired interpolation enum defined by
+            :class:`torchvision.transforms.InterpolationMode`.
+        antialias (bool, optional): Whether to apply antialiasing.
+        resize_target (bool, optional): Whether to resize the target
+        meta: statistics/info of the input data and target encoder
         """
-        super().__init__(preprocessor, preprocessor.encoder_input_size, interpolation, antialias, resize_target)
+        size = meta['encoder_input_size']
+        super().__init__(size, interpolation, antialias, resize_target, **meta)
 
 
 class RandomResizedCrop(BasePreprocessor):
     def __init__(self,
-                 preprocessor: BasePreprocessor,
-                 size,
+                 size: int | Sequence[int],
                  scale: Tuple[float, float] = (0.08, 1.0),
                  ratio: Tuple[float, float] = (0.75, 1.3333333333333333),
                  interpolation=T.InterpolationMode.BILINEAR,
                  antialias: Optional[bool] = True,
                  resize_target: bool = True,
+                 **meta
                  )-> None:
-        super().__init__(preprocessor)
+        """Initialize the RandomResizedCrop preprocessor.
+                Args:
+
+                interpolation (InterpolationMode): Desired interpolation enum defined by
+                    :class:`torchvision.transforms.InterpolationMode`.
+                antialias (bool, optional): Whether to apply antialiasing.
+                resize_target (bool, optional): Whether to resize the target
+                meta: statistics/info of the input data and target encoder
+        """
+        super().__init__()
         self.size = _setup_size(size, error_msg="Please provide only two dimensions (h, w) for size.")
 
         if not isinstance(scale, Sequence):
@@ -576,7 +636,7 @@ class RandomResizedCrop(BasePreprocessor):
         self.resize_target = resize_target
 
     @staticmethod
-    def get_params(input_size: Tuple[int, int], scale: List[float], ratio: List[float]) -> Tuple[int, int, int, int]:
+    def get_params(input_size: Tuple[int, int], scale: Tuple[float, float], ratio: Tuple[float, float]) -> Tuple[int, int, int, int]:
         """Get parameters for ``crop`` for a random sized crop.
 
         Args:
@@ -623,7 +683,6 @@ class RandomResizedCrop(BasePreprocessor):
         self, data: dict[str, torch.Tensor | dict[str, torch.Tensor]]
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
 
-        data = self.preprocessor(data)
         self.check_size(data)
 
         _, t, h_img, w_img = data["image"][list(data["image"].keys())[0]].shape
@@ -644,17 +703,23 @@ class RandomResizedCrop(BasePreprocessor):
 
         return data
 
+    def update_meta(self, meta):
+        """Tracking the meta statistics/info for next processor."""
+        meta['data_img_size'] = self.size[0]
+        return meta
+
 class RandomResizedCropToEncoder(RandomResizedCrop):
     def __init__(self,
-                 preprocessor: BasePreprocessor,
                  scale: Tuple[float, float] = (0.08, 1.0),
                  ratio: Tuple[float, float] = (0.75, 1.3333333333333333),
                  interpolation=T.InterpolationMode.BILINEAR,
                  antialias: Optional[bool] = True,
                  resize_target: bool = True,
+                 **meta
                  ) -> None:
-        super().__init__(preprocessor, preprocessor.encoder_input_size, scale, ratio, interpolation, antialias, resize_target)
 
+        size = meta['encoder_input_size']
+        super().__init__(size, scale, ratio, interpolation, antialias, resize_target, **meta)
 
 
 def _setup_size(size, error_msg):

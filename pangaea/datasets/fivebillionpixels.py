@@ -8,31 +8,12 @@ import tifffile as tiff
 import torch
 import torchvision.transforms.functional as TF
 
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.datasets.base import RawGeoFMDataset
 
-class FiveBillionPixels(GeoFMDataset):
+class FiveBillionPixels(RawGeoFMDataset):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
-        use_cmyk: bool,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the FiveBillionPixels dataset.
         Link to original dataset: https://x-ytong.github.io/project/Five-Billion-Pixels.html
@@ -65,29 +46,9 @@ class FiveBillionPixels(GeoFMDataset):
             auto_download (bool): whether to download the dataset automatically.
             use_cmyk (bool): wheter to use cmyk or RGB-NIR colours for images.
         """
-        super(FiveBillionPixels, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor
-            # use_cmyk=use_cmyk,
-        )
+        super(FiveBillionPixels, self).__init__(**kwargs)
 
-        self._base_dir = root_path
+        self._base_dir = self.root_path
 
         self._image_dir = sorted(glob(os.path.join(self._base_dir, self.split, 'imgs', '*.tif')))
         self._label_dir = sorted(glob(os.path.join(self._base_dir, self.split, 'labels', '*.tif')))

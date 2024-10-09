@@ -39,48 +39,18 @@ class CROMA_OPTICAL_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_size: int,
-        input_bands: dict[str, list[str]],
-        output_layers: int | list[int],
-        download_url: str,
-        size="base",
+        **kwargs
     ):
-        super().__init__(
-            model_name="croma_optical",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=768,
-            output_dim=768,
-            multi_temporal=False,
-            download_url=download_url,
-        )
+        super().__init__(**kwargs)
 
-        self.output_layers = output_layers
-        self.img_size = input_size
-
-        if size == "base":
-            self.embed_dim = 768
-            self.encoder_depth = 12
-            self.num_heads = 16
-            self.patch_size = 8
-        else:
-            # large by default
-            self.embed_dim = 1024
-            self.encoder_depth = 24
-            self.num_heads = 16
-            self.patch_size = 8
-
-        self.output_dim = self.embed_dim
-        self.num_patches = int((self.img_size / 8) ** 2)
+        self.num_patches = int((self.input_size / self.patch_size) ** 2)
         self.s2_channels = 12  # fixed at 12 multispectral optical channels
         self.attn_bias = get_2dalibi(
             num_heads=self.num_heads, num_patches=self.num_patches
         )
 
         self.s2_encoder = ViT(
-            dim=self.embed_dim, depth=self.encoder_depth, in_channels=self.s2_channels
+            dim=self.embed_dim, depth=self.depth, in_channels=self.s2_channels
         )
 
     def simple_forward(self, image):
@@ -93,17 +63,7 @@ class CROMA_OPTICAL_Encoder(Encoder):
             self.output_layers,
         )  # (bsz, num_patches, encoder_dim)
 
-        output = [
-            x.permute(0, 2, 1)
-            .view(
-                x.shape[0],
-                -1,
-                self.img_size // self.patch_size,
-                self.img_size // self.patch_size,
-            )
-            .contiguous()
-            for x in output
-        ]
+        output = [self.naive_reshape_to_2d(out) for out in output]
 
         return output
 
@@ -158,8 +118,8 @@ class CROMA_SAR_Encoder(Encoder):
         input_size: int,
         input_bands: dict[str, list[str]],
         output_layers: int | list[int],
+        naive_multi_forward_mode: str,
         download_url: str,
-        size="base",
     ):
         super().__init__(
             model_name="croma_sar",
@@ -170,27 +130,12 @@ class CROMA_SAR_Encoder(Encoder):
             output_dim=768,
             multi_temporal=False,
             multi_temporal_fusion=False,
+            naive_multi_forward_mode=naive_multi_forward_mode,
             download_url=download_url,
         )
 
-        self.output_layers = output_layers
-        self.img_size = input_size
 
-        if size == "base":
-            self.embed_dim = 768
-            self.encoder_depth = 12
-            self.num_heads = 16
-            self.patch_size = 8
-        else:
-            # large by default
-            self.embed_dim = 1024
-            self.encoder_depth = 24
-            self.num_heads = 16
-            self.patch_size = 8
-
-        self.output_dim = self.embed_dim
-
-        self.num_patches = int((self.img_size / 8) ** 2)
+        self.num_patches = int((self.input_size / self.patch_size) ** 2)
         self.s1_channels = 2  # fixed at 2 SAR backscatter channels
         self.attn_bias = get_2dalibi(
             num_heads=self.num_heads, num_patches=self.num_patches
@@ -198,7 +143,7 @@ class CROMA_SAR_Encoder(Encoder):
 
         self.s1_encoder = ViT(
             dim=self.embed_dim,
-            depth=int(self.encoder_depth / 2),
+            depth=int(self.depth / 2),
             in_channels=self.s1_channels,
         )
 
@@ -212,17 +157,7 @@ class CROMA_SAR_Encoder(Encoder):
             self.output_layers,
         )  # (bsz, num_patches, encoder_dim)
 
-        output = [
-            x.permute(0, 2, 1)
-            .view(
-                x.shape[0],
-                -1,
-                self.img_size // self.patch_size,
-                self.img_size // self.patch_size,
-            )
-            .contiguous()
-            for x in output
-        ]
+        output = [self.naive_reshape_to_2d(out) for out in output]
 
         return output
 
@@ -276,42 +211,11 @@ class CROMA_JOINT_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_size: int,
-        input_bands: dict[str, list[str]],
-        output_layers: int | list[int],
-        download_url: str,
-        size="base",
+        **kwargs
     ):
-        super().__init__(
-            model_name="croma_joint",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=768,
-            output_dim=768,
-            multi_temporal=False,
-            download_url=download_url,
-        )
+        super().__init__(**kwargs)
 
-        self.output_layers = output_layers
-        self.img_size = input_size
-
-        if size == "base":
-            self.embed_dim = 768
-            self.encoder_depth = 12
-            self.num_heads = 16
-            self.patch_size = 8
-        else:
-            # large by default
-            self.embed_dim = 1024
-            self.encoder_depth = 24
-            self.num_heads = 16
-            self.patch_size = 8
-
-        self.output_dim = self.embed_dim
-
-        self.num_patches = int((self.img_size / 8) ** 2)
+        self.num_patches = int((self.input_size / self.patch_size) ** 2)
         self.s1_channels = 2  # fixed at 2 SAR backscatter channels
         self.s2_channels = 12  # fixed at 12 multispectral optical channels
         self.attn_bias = get_2dalibi(
@@ -320,19 +224,19 @@ class CROMA_JOINT_Encoder(Encoder):
 
         self.s1_encoder = ViT(
             dim=self.embed_dim,
-            depth=int(self.encoder_depth / 2),
+            depth=int(self.depth / 2),
             in_channels=self.s1_channels,
         )
         self.s2_encoder = ViT(
-            dim=self.embed_dim, depth=self.encoder_depth, in_channels=self.s2_channels
+            dim=self.embed_dim, depth=self.depth, in_channels=self.s2_channels
         )
         self.cross_encoder = BaseTransformerCrossAttn(
             dim=self.embed_dim,
-            depth=int(self.encoder_depth / 2),
+            depth=int(self.depth / 2),
             num_heads=self.num_heads,
         )
 
-    def forward(self, image):
+    def simple_forward(self, image):
         attn_bias = self.attn_bias.to(image["optical"].device)
         SAR_encodings = self.s1_encoder(
             image["sar"], attn_bias
@@ -347,17 +251,7 @@ class CROMA_JOINT_Encoder(Encoder):
             output_layers=self.output_layers,
         )
 
-        output = [
-            x.permute(0, 2, 1)
-            .view(
-                x.shape[0],
-                -1,
-                self.img_size // self.patch_size,
-                self.img_size // self.patch_size,
-            )
-            .contiguous()
-            for x in output
-        ]
+        output = [self.naive_reshape_to_2d(out) for out in output]
 
         return output
 
@@ -575,18 +469,18 @@ class BaseTransformer(nn.Module):
             x = ffn(x) + x  # (BSZ, num_patches, dim)
 
             if output_layers is not None and i in output_layers:
+                if self.final_norm and i == len(self.layers) - 1:
+                    x = self.norm_out(x)
                 output.append(x)
 
-        if self.final_norm:
-            if output_layers is None:
-                x = self.norm_out(x)
-            else:
-                output[-1] = self.norm_out(output[-1])
-
         if output_layers is None:
-            return x
+            if self.final_norm:
+                return self.norm_out(x)
+            else:
+                return x
         else:
             return output
+
 
 
 class BaseTransformerCrossAttn(nn.Module):
@@ -616,7 +510,7 @@ class BaseTransformerCrossAttn(nn.Module):
 
         self.norm_out = nn.LayerNorm(dim)
 
-    def forward(self, x, context, relative_position_bias, output_layers):
+    def forward(self, x, context, relative_position_bias, output_layers=None):
         output = []
 
         for i, layer in enumerate(self.layers):
@@ -627,13 +521,13 @@ class BaseTransformerCrossAttn(nn.Module):
             )  # (BSZ, num_patches, dim)
             x = ffn(x) + x  # (BSZ, num_patches, dim)
             if output_layers is not None and i in output_layers:
+                if i == len(self.layers) - 1:
+                    x = self.norm_out(x)
                 output.append(x)
 
         if output_layers is None:
-            x = self.norm_out(x)
-            return x
+            return self.norm_out(x)
         else:
-            output[-1] = self.norm_out(output[-1])
             return output
 
 

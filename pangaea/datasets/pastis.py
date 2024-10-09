@@ -14,8 +14,7 @@ import rasterio
 import torch
 from einops import rearrange
 
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.datasets.base import RawGeoFMDataset
 
 def prepare_dates(date_dict, reference_date):
     """Date formating."""
@@ -64,27 +63,10 @@ def split_image(image_tensor, nb_split, id):
         ].float()
 
 
-class Pastis(GeoFMDataset):
+class Pastis(RawGeoFMDataset):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the PASTIS dataset.
 
@@ -115,35 +97,17 @@ class Pastis(GeoFMDataset):
             download_url (str): url to download the dataset.
             auto_download (bool): whether to download the dataset automatically.
         """
-        super(Pastis, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor
-        )
+        super(Pastis, self).__init__(**kwargs)
 
-        assert split in ["train", "val", "test"], "Split must be train, val or test"
-        if split == "train":
+        self.grid_size = self.multi_temporal
+
+        assert self.split in ["train", "val", "test"], "Split must be train, val or test"
+        if self.split == "train":
             folds = [1, 2, 3]
-        elif split == "val":
+        elif self.split == "val":
             folds = [4]
         else:
             folds = [5]
-
 
         self.modalities = ["s2", "aerial", "s1-asc"]
         self.nb_split = 1
@@ -151,7 +115,7 @@ class Pastis(GeoFMDataset):
         reference_date = "2018-09-01"
         self.reference_date = datetime(*map(int, reference_date.split("-")))
 
-        self.meta_patch = gpd.read_file(os.path.join(self.path, "metadata.geojson"))
+        self.meta_patch = gpd.read_file(os.path.join(self.root_path, "metadata.geojson"))
 
         self.num_classes = 20
 
@@ -179,7 +143,7 @@ class Pastis(GeoFMDataset):
         part = i % (self.nb_split * self.nb_split)
         label = torch.from_numpy(
             np.load(
-                os.path.join(self.path, "ANNOTATIONS/TARGET_" + str(name) + ".npy")
+                os.path.join(self.root_path, "ANNOTATIONS/TARGET_" + str(name) + ".npy")
             )[0].astype(np.int32)
         )
         # remove void class
@@ -191,7 +155,7 @@ class Pastis(GeoFMDataset):
             if modality == "aerial":
                 with rasterio.open(
                     os.path.join(
-                        self.path,
+                        self.root_path,
                         "DATA_SPOT/PASTIS_SPOT6_RVB_1M00_2019/SPOT6_RVB_1M00_2019_"
                         + str(name)
                         + ".tif",
@@ -206,7 +170,7 @@ class Pastis(GeoFMDataset):
                     torch.from_numpy(
                         np.load(
                             os.path.join(
-                                self.path,
+                                self.root_path,
                                 "DATA_{}".format(modality_name.upper()),
                                 "{}_{}.npy".format(modality_name.upper(), name),
                             )
@@ -223,7 +187,7 @@ class Pastis(GeoFMDataset):
                     torch.from_numpy(
                         np.load(
                             os.path.join(
-                                self.path,
+                                self.root_path,
                                 "DATA_{}".format(modality_name.upper()),
                                 "{}_{}.npy".format(modality_name.upper(), name),
                             )
@@ -240,7 +204,7 @@ class Pastis(GeoFMDataset):
                     torch.from_numpy(
                         np.load(
                             os.path.join(
-                                self.path,
+                                self.root_path,
                                 "DATA_{}".format(modality_name.upper()),
                                 "{}_{}.npy".format(modality_name.upper(), name),
                             )
@@ -272,7 +236,7 @@ class Pastis(GeoFMDataset):
                     torch.from_numpy(
                         np.load(
                             os.path.join(
-                                self.path,
+                                self.root_path,
                                 "DATA_{}".format(modality_name.upper()),
                                 "{}_{}.npy".format(modality_name.upper(), name),
                             )
@@ -305,7 +269,7 @@ class Pastis(GeoFMDataset):
                         torch.from_numpy(
                             np.load(
                                 os.path.join(
-                                    self.path,
+                                    self.root_path,
                                     "DATA_{}".format(modality_name.upper()),
                                     "{}_{}.npy".format(modality_name.upper(), name),
                                 )
@@ -323,7 +287,7 @@ class Pastis(GeoFMDataset):
                         torch.from_numpy(
                             np.load(
                                 os.path.join(
-                                    self.path,
+                                    self.root_path,
                                     "DATA_{}".format(modality.upper()),
                                     "{}_{}.npy".format(modality.upper(), name),
                                 )

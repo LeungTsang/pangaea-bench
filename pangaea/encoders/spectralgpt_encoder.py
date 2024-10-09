@@ -41,48 +41,26 @@ class SpectralGPT_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_size: int,
-        input_bands: dict[str, list[str]],
-        output_layers: int | list[int],
-        download_url: str,
-        in_chans: int = 3,
         t_patch_size: int = 3,
-        patch_size: int = 16,
-        output_dim: int = 768,
-        embed_dim: int = 768,
-        depth: int = 12,
-        num_heads: int = 12,
         mlp_ratio: float = 4.0,
         no_qkv_bias: bool = False,
         drop_path_rate: float = 0.5,
         norm_layer=nn.LayerNorm,
         sep_pos_embed=True,
-        cls_embed=False,
+        **kwargs
     ):
-        super().__init__(
-            model_name="SpectralGPT",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=embed_dim,
-            output_dim=output_dim,
-            multi_temporal=False,
-            multi_temporal_fusion=False,
-            download_url=download_url,
-        )
-
-        self.output_layers = output_layers
+        super().__init__(**kwargs)
 
         # refer to: https://github.com/danfenghong/IEEE_TPAMI_SpectralGPT/blob/ab6b965eb20c0e7ec373eb48ec99a67f711d4906/models_mae_spectral.py#L477
         self.num_frames = 1
+        self.in_chans = sum([len(v) for v in self.input_bands.values()])
 
         self.patch_embed = PatchEmbed(
             self.input_size,
-            patch_size,
+            self.patch_size,
             self.num_frames,
-            embed_dim,
-            in_chans,
+            self.embed_dim,
+            self.in_chans,
             t_patch_size,
         )
 
@@ -90,44 +68,42 @@ class SpectralGPT_Encoder(Encoder):
 
         self.patchemb_input_size = self.patch_embed.input_size
 
-        self.cls_embed = cls_embed
         self.sep_pos_embed = sep_pos_embed
-        self.patch_size = patch_size
 
-        if self.cls_embed:
-            self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        if self.has_cls_token:
+            self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
         if self.sep_pos_embed:
             self.pos_embed_spatial = nn.Parameter(
                 torch.zeros(
                     1,
                     self.patchemb_input_size[1] * self.patchemb_input_size[2],
-                    embed_dim,
+                    self.embed_dim,
                 )
             )
             self.pos_embed_temporal = nn.Parameter(
-                torch.zeros(1, self.patchemb_input_size[0], embed_dim)
+                torch.zeros(1, self.patchemb_input_size[0], self.embed_dim)
             )
-            if self.cls_embed:
-                self.pos_embed_class = nn.Parameter(torch.zeros(1, 1, embed_dim))
+            if self.has_cls_token:
+                self.pos_embed_class = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
         else:
-            if self.cls_embed:
+            if self.has_cls_token:
                 _num_patches = num_patches + 1
             else:
                 _num_patches = num_patches
 
             self.pos_embed = nn.Parameter(
-                torch.zeros(1, _num_patches, embed_dim), requires_grad=True
+                torch.zeros(1, _num_patches, self.embed_dim), requires_grad=True
             )
 
         dpr = [
-            x.item() for x in torch.linspace(0, drop_path_rate, depth)
+            x.item() for x in torch.linspace(0, drop_path_rate, self.depth)
         ]  # stochastic depth decay rule
 
         self.blocks = nn.ModuleList(
             [
                 Block(
-                    embed_dim,
-                    num_heads,
+                    self.embed_dim,
+                    self.num_heads,
                     mlp_ratio,
                     qkv_bias=not no_qkv_bias,
                     qk_scale=None,
@@ -138,7 +114,7 @@ class SpectralGPT_Encoder(Encoder):
                         input_size=self.patchemb_input_size,
                     ),
                 )
-                for i in range(depth)
+                for i in range(self.depth)
             ]
         )
 
@@ -166,14 +142,14 @@ class SpectralGPT_Encoder(Encoder):
         # input image of shape B C H W
         x = image["optical"]#.unsqueeze(-3)  # B C H W -> B C 1 H W
 
-        x = x.permute(0, 2, 1, 3, 4)  # for this model: B, T, C, H, W
+        x = x.transpose(1, 2)  # for this model: B, T, C, H, W
         x = self.patch_embed(x)
         N, T, L, C = x.shape  # T: number of bands; L: spatial
 
         x = x.view([N, T * L, C])
 
         # append cls token
-        if self.cls_embed:
+        if self.has_cls_token:
             cls_token = self.cls_token
             cls_tokens = cls_token.expand(x.shape[0], -1, -1)
             x = torch.cat((cls_tokens, x), dim=1)
@@ -186,7 +162,7 @@ class SpectralGPT_Encoder(Encoder):
                 self.patchemb_input_size[1] * self.patchemb_input_size[2],
                 dim=1,
             )
-            if self.cls_embed:
+            if self.has_cls_token:
                 pos_embed = torch.cat(
                     [
                         self.pos_embed_class.expand(pos_embed.shape[0], -1, -1),
@@ -195,38 +171,18 @@ class SpectralGPT_Encoder(Encoder):
                     1,
                 )
         else:
-            pos_embed = self.pos_embed[:, :, :]
+            pos_embed = self.pos_embed
         x = x + pos_embed
-
-        # reshape to [N, T, L, C] or [N, T*L, C]
-        requires_t_shape = (
-            len(self.blocks) > 0  # support empty decoder
-            and hasattr(self.blocks[0].attn, "requires_t_shape")
-            and self.blocks[0].attn.requires_t_shape
-        )
-        if requires_t_shape:
-            x = x.view([N, T, L, C])
 
         output = []
         for i, blk in enumerate(self.blocks):
             x = blk(x)
             if i in self.output_layers:
-                if self.cls_embed:
-                    x = x[:, 1:]
-                out = (
-                    x.permute(0, 2, 1)
-                    .view(
-                        x.shape[0],
-                        -1,
-                        self.input_size // self.patch_size,
-                        self.input_size // self.patch_size,
-                    )
-                    .contiguous()
-                )
+                out = x.view([N, T, L, C]).transpose(1, 2).flatten(2, 3)
+                out = self.naive_reshape_to_2d(out)
                 output.append(out)
 
         return output
-
 
 class PatchEmbed(nn.Module):
     """Image to Patch Embedding"""
@@ -237,7 +193,6 @@ class PatchEmbed(nn.Module):
         patch_size=16,
         in_chans=3,
         embed_dim=768,
-        # temporal related:
         frames=32,
         t_patch_size=4,
     ):

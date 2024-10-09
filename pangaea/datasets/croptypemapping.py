@@ -12,33 +12,15 @@ import pandas as pd
 
 import torch
 
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.datasets.base import RawGeoFMDataset
 
 
 # @DATASET_REGISTRY.register()
-class CropTypeMappingSouthSudan(GeoFMDataset):
+class CropTypeMappingSouthSudan(RawGeoFMDataset):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
         use_pad: bool,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the CropTypeMappingSouthSudan dataset.
         Link: https://sustainlab-group.github.io/sustainbench/docs/datasets/sdg2/crop_type_mapping_ghana-ss.html#download
@@ -71,41 +53,20 @@ class CropTypeMappingSouthSudan(GeoFMDataset):
             auto_download (bool): whether to download the dataset automatically.
             use_pad (bool): wheter to pad or not the images.
         """
-        super(CropTypeMappingSouthSudan, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor
-            # use_pad=use_pad
-        )
+        super(CropTypeMappingSouthSudan, self).__init__(**kwargs)
 
-        self.split = split
         self.split_dict = {'train': 0, 'val': 1, 'test': 2}
         self.split_mapping = {'train': 'Train', 'val': 'Validation', 'test': 'Test'}
 
 
         self.country = 'southsudan'
         self.use_pad = use_pad
-        self.grid_size = multi_temporal
+        self.grid_size = self.multi_temporal
 
         split_df = pd.read_csv(os.path.join(self.root_path, self.country, 'list_eval_partition.csv'))
         self.split_array = split_df['partition'].values
 
-        split_mask = self.split_array == self.split_dict[split]
+        split_mask = self.split_array == self.split_dict[self.split]
         self.split_indices = np.where(split_mask)[0]
         self.ori_ids = torch.from_numpy(split_df['id'].values)
 
@@ -146,9 +107,6 @@ class CropTypeMappingSouthSudan(GeoFMDataset):
                 'target': label,
                 'metadata': metadata
             }
-
-            if self.preprocessor is not None:
-                output = self.preprocessor(output)
 
             return output
         

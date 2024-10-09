@@ -42,69 +42,42 @@ class Prithvi_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_bands: dict[str, list[str]],
-        input_size: int,
-        output_layers: int | list[int],
-        download_url: str,
-        patch_size=16,
         tubelet_size=1,
-        in_chans=3,
-        embed_dim=1024,
-        depth=24,
-        num_heads=16,
         mlp_ratio=4.0,
         norm_layer=nn.LayerNorm,
         num_frames=1,
+        **kwargs
     ):
-        super().__init__(
-            model_name="Prithvi",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=embed_dim,
-            output_dim=embed_dim,
-            multi_temporal=True,
-            multi_temporal_fusion=False,
-            download_url=download_url,
-        )
+        super().__init__(**kwargs)
 
-        self.output_layers = output_layers
+        self.num_frames = num_frames
 
-        self.img_size = self.input_size
-
-        if num_frames:
-            self.num_frames = num_frames
-        else:
-            self.num_frames = 1
-
-        self.patch_size = patch_size
-        self.in_chans = in_chans
+        self.in_chans = len(self.input_bands['optical'])
         self.patch_embed = PatchEmbed(
-            self.img_size,
-            patch_size,
+            self.input_size,
+            self.patch_size,
             self.num_frames,
             tubelet_size,
-            in_chans,
-            embed_dim,
+            self.in_chans,
+            self.embed_dim,
         )
         num_patches = self.patch_embed.num_patches
 
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
         self.pos_embed = nn.Parameter(
-            torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False
+            torch.zeros(1, num_patches + 1, self.embed_dim), requires_grad=False
         )  # fixed sin-cos embedding
 
         self.blocks = nn.ModuleList(
             [
                 Block(
-                    embed_dim,
-                    num_heads,
+                    self.embed_dim,
+                    self.num_heads,
                     mlp_ratio,
                     qkv_bias=True,
                     norm_layer=norm_layer,
                 )
-                for i in range(depth)
+                for i in range(self.depth)
             ]
         )
 
@@ -174,19 +147,7 @@ class Prithvi_Encoder(Encoder):
         for i, blk in enumerate(self.blocks):
             x = blk(x)
             if i in self.output_layers:
-                out = (
-                    x[:, 1:, :]
-                    .permute(0, 2, 1)
-                    .view(
-                        x.shape[0],
-                        -1,
-                        self.num_frames,
-                        self.img_size // self.patch_size,
-                        self.img_size // self.patch_size,
-                    )
-                    .squeeze(2)
-                    .contiguous()
-                )
+                out = self.naive_reshape_to_2d(x)
                 output.append(out)
 
         return output

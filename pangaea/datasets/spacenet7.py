@@ -18,8 +18,7 @@ import torch
 
 from abc import abstractmethod
 
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.datasets.base import RawGeoFMDataset
 
 # train/val/test split from https://doi.org/10.3390/rs15215135
 SN7_TRAIN = [
@@ -93,31 +92,14 @@ SN7_TEST = [
 # SPACENET 7 DATASET                                             #
 ###############################################################
 
-class AbstractSN7(GeoFMDataset):
+class AbstractSN7(RawGeoFMDataset):
 
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
         domain_shift: bool,
         i_split: int,
         j_split: int,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the SpaceNet dataset.
         Link: https://spacenet.ai/sn7-challenge/
@@ -152,35 +134,15 @@ class AbstractSN7(GeoFMDataset):
             i_split (int): .
             j_split (int): . #ISSUES
         """
-        super(AbstractSN7, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor
-        )
+        super(AbstractSN7, self).__init__(**kwargs)
 
 
-        self.root_path = Path(root_path)
+        self.root_path = Path(self.root_path)
         metadata_file = self.root_path / 'metadata_train.json'
         with open(metadata_file, 'r') as f:
             self.metadata = json.load(f)
 
         self.sn7_img_size = 1024  # size of the SpaceNet 7 images
-        self.img_size = img_size  # size used for tiling the images
         assert self.sn7_img_size % self.img_size == 0
 
         self.domain_shift = domain_shift
@@ -263,63 +225,27 @@ class AbstractSN7(GeoFMDataset):
 class SN7MAPPING(AbstractSN7):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
-        domain_shift: bool,
         i_split: int,
         j_split: int,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the SpaceNet dataset for building mapping.
         """
         super(SN7MAPPING, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            domain_shift=domain_shift,
             i_split=i_split,
             j_split=j_split,
-            preprocessor=preprocessor
+            **kwargs
         )
 
-        self.split = split
+        self.split = self.split
         self.items = []
 
         if self.domain_shift:  # split by AOI ids
-            if split == 'train':
+            if self.split == 'train':
                 self.aoi_ids = list(SN7_TRAIN)
-            elif split == 'val':
+            elif self.split == 'val':
                 self.aoi_ids = list(SN7_VAL)
-            elif split == 'test':
+            elif self.split == 'test':
                 self.aoi_ids = list(SN7_TEST)
             else:
                 raise Exception('Unkown split')
@@ -354,13 +280,13 @@ class SN7MAPPING(AbstractSN7):
                             'year': timestamp['year'],
                             'month': timestamp['month'],
                         }
-                        if split == 'train':
+                        if self.split == 'train':
                             i_min, i_max = 0, self.i_split
                             j_min, j_max = 0, self.sn7_img_size
-                        elif split == 'val':
+                        elif self.split == 'val':
                             i_min, i_max = self.i_split, self.sn7_img_size
                             j_min, j_max = 0, self.j_split
-                        elif split == 'test':
+                        elif self.split == 'test':
                             i_min, i_max = self.i_split, self.sn7_img_size
                             j_min, j_max = self.j_split, self.sn7_img_size
                         else:
@@ -403,38 +329,17 @@ class SN7MAPPING(AbstractSN7):
             'metadata': {}
         }
 
-        if self.preprocessor is not None:
-            output = self.preprocessor(output)
-
         return output
 
 class SN7CD(AbstractSN7):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
         domain_shift: bool,
         i_split: int,
         j_split: int,
         dataset_multiplier: int,
         minimum_temporal_gap: int,
-        preprocessor: BasePreprocessor = None
-
+        **kwargs
     ):
         """Initialize the SpaceNet dataset for change detection.
 
@@ -443,45 +348,28 @@ class SN7CD(AbstractSN7):
             dataset_multiplier (int): multiplies sample in dataset during training.
         """
         super(SN7CD, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
             domain_shift=domain_shift,
             i_split=i_split,
             j_split=j_split,
-            preprocessor=preprocessor
+            **kwargs
         )
 
         self.T = self.multi_temporal
         assert self.T > 1
 
-        self.eval_mode = False if split == 'train' else True
+        self.eval_mode = False if self.split == 'train' else True
         self.multiplier = 1 if self.eval_mode else dataset_multiplier
         self.min_gap = minimum_temporal_gap
 
-        self.split = split
+        self.split = self.split
         self.items = []
 
         if self.domain_shift:  # split by AOI ids
-            if split == 'train':
+            if self.split == 'train':
                 self.aoi_ids = list(SN7_TRAIN)
-            elif split == 'val':
+            elif self.split == 'val':
                 self.aoi_ids = list(SN7_VAL)
-            elif split == 'test':
+            elif self.split == 'test':
                 self.aoi_ids = list(SN7_TEST)
             else:
                 raise Exception('Unkown split')
@@ -502,13 +390,13 @@ class SN7CD(AbstractSN7):
             self.aoi_ids = list(self.sn7_aois)
             for aoi_id in self.aoi_ids:
                 item = { 'aoi_id': aoi_id }
-                if split == 'train':
+                if self.split == 'train':
                     i_min, i_max = 0, self.i_split
                     j_min, j_max = 0, self.sn7_img_size
-                elif split == 'val':
+                elif self.split == 'val':
                     i_min, i_max = self.i_split, self.sn7_img_size
                     j_min, j_max = 0, self.j_split
-                elif split == 'test':
+                elif self.split == 'test':
                     i_min, i_max = self.i_split, self.sn7_img_size
                     j_min, j_max = self.j_split, self.sn7_img_size
                 else:
@@ -575,9 +463,6 @@ class SN7CD(AbstractSN7):
             # 'weight': weight,
             'metadata': {}
         }
-
-        if self.preprocessor is not None:
-            output = self.preprocessor(output)
 
         return output
 

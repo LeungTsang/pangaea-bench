@@ -42,53 +42,32 @@ class SSL4EO_MAE_OPTICAL_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_size: int,
-        input_bands: dict[str, list[str]],
-        output_layers: int | list[int],
-        download_url: str,
-        embed_dim: int = 1024,
-        patch_size: int = 16,
-        in_chans: int = 3,
-        depth: int = 12,
-        num_heads: int = 16,
         mlp_ratio: float = 4.0,
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        **kwargs
     ):
-        super().__init__(
-            model_name="ssl4eo_mae_optical",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=embed_dim,
-            output_dim=embed_dim,
-            multi_temporal=False,
-            multi_temporal_fusion=False,
-            download_url=download_url,
-        )
+        super().__init__(**kwargs)
 
-        self.output_layers = output_layers
+        self.in_chans = sum([len(v) for v in self.input_bands.values()])
 
-        self.patch_size = patch_size
-
-        self.patch_embed = PatchEmbed(self.input_size, patch_size, in_chans, embed_dim)
+        self.patch_embed = PatchEmbed(self.input_size, self.patch_size, self.in_chans, self.embed_dim)
         num_patches = self.patch_embed.num_patches
 
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
         self.pos_embed = nn.Parameter(
-            torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False
+            torch.zeros(1, num_patches + 1, self.embed_dim), requires_grad=False
         )  # fixed sin-cos embedding
 
         self.blocks = nn.ModuleList(
             [
                 Block(
-                    embed_dim,
-                    num_heads,
+                    self.embed_dim,
+                    self.num_heads,
                     mlp_ratio,
                     qkv_bias=True,
                     norm_layer=norm_layer,
                 )
-                for i in range(depth)
+                for i in range(self.depth)
             ]
         )
         # self.norm = norm_layer(embed_dim)
@@ -122,10 +101,11 @@ class SSL4EO_MAE_OPTICAL_Encoder(Encoder):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, image):
+    def simple_forward(self, image):
         # embed patches
-        x = image["optical"].squeeze(2)
-        x = self.patch_embed(x)
+        image = self.squeeze_temporal_dimension(image)
+
+        x = self.patch_embed(image["optical"])
 
         # append cls token
         cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
@@ -138,17 +118,7 @@ class SSL4EO_MAE_OPTICAL_Encoder(Encoder):
             x = blk(x)
             if i in self.output_layers:
                 # out = self.norm(x) if i == 11 else x
-                out = (
-                    x[:, 1:]
-                    .permute(0, 2, 1)
-                    .view(
-                        x.shape[0],
-                        -1,
-                        self.input_size // self.patch_size,
-                        self.input_size // self.patch_size,
-                    )
-                    .contiguous()
-                )
+                out = self.naive_reshape_to_2d(x)
                 output.append(out)
 
         return output
@@ -169,7 +139,7 @@ class SSL4EO_MAE_OPTICAL_Encoder(Encoder):
             else:
                 pretrained_encoder[name] = pretrained_model[name]
 
-        self.load_state_dict(pretrained_encoder, strict=False)
+        self.load_state_dict(pretrained_encoder)
         self.parameters_warning(missing, incompatible_shape, logger)
 
 
@@ -194,37 +164,9 @@ class SSL4EO_MAE_SAR_Encoder(SSL4EO_MAE_OPTICAL_Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_size: int,
-        input_bands: dict[str, list[str]],
-        output_layers: int | list[int],
-        download_url: str,
-        embed_dim: int = 1024,
-        patch_size: int = 16,
-        in_chans: int = 3,
-        depth: int = 12,
-        num_heads: int = 16,
-        mlp_ratio: float = 4.0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        **kwargs
     ):
-        super().__init__(
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            output_layers=output_layers,
-            embed_dim=embed_dim,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            depth=depth,
-            num_heads=num_heads,
-            mlp_ratio=mlp_ratio,
-            norm_layer=norm_layer,
-            download_url=download_url,
-        )
-
-        self.model_name = "ssl4eo_mae_sar"
-        self.multi_temporal = False
-        self.output_dim = embed_dim
+        super().__init__(**kwargs)
 
     def simple_forward(self, image):
         # embed patches

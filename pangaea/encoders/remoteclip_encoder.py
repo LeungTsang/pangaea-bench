@@ -272,7 +272,6 @@ class Transformer(nn.Module):
         width: int,
         layers: int,
         heads: int,
-        output_layers,
         mlp_ratio: float = 4.0,
         ls_init_value: float = None,
         act_layer: Callable = nn.GELU,
@@ -281,7 +280,6 @@ class Transformer(nn.Module):
         super().__init__()
         self.width = width
         self.layers = layers
-        self.output_layers = output_layers
 
         self.resblocks = nn.ModuleList(
             [
@@ -302,15 +300,17 @@ class Transformer(nn.Module):
             return self.resblocks[0].mlp.c_fc.int8_original_dtype
         return self.resblocks[0].mlp.c_fc.weight.dtype
 
-    def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None):
+    def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None, output_layers=None):
         output = []
         for i, r in enumerate(self.resblocks):
             x = r(x, attn_mask=attn_mask)
-            if i in self.output_layers:
-                # out = x[:, 1:].permute(0, 2, 1).view(-1, self.embed_dim, self.img_size // self.patch_size, self.img_size // self.patch_size).contiguous()
+            if output_layers is not None and i in output_layers:
                 output.append(x)
 
-        return output
+        if output_layers is not None:
+            return output
+        else:
+            return x
 
 
 class RemoteCLIP_Encoder(Encoder):
@@ -341,57 +341,33 @@ class RemoteCLIP_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_bands: dict[str, list[str]],
-        input_size: int,
-        embed_dim: int,
-        patch_size: int,
-        width: int,
-        head_width: int,
-        layers: int,
         mlp_ratio: float,
-        output_layers: int | list[int],
-        download_url: str,
         ls_init_value: float | None = None,
         patch_dropout: float = 0.0,
         no_ln_pre: bool = False,
         pos_embed_type: str = "learnable",
         act_layer: Callable = nn.GELU,
         norm_layer: Callable = LayerNorm,
+        **kwargs
     ):
-        super().__init__(
-            model_name="remoteclip_encoder",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=embed_dim,
-            output_dim=embed_dim,
-            multi_temporal=False,
-            multi_temporal_fusion=False,
-            download_url=download_url,
-        )
+        super().__init__(**kwargs)
 
-        self.output_layers = output_layers
-
-        image_height, image_width = self.image_size = (self.input_size, self.input_size)
-        patch_height, patch_width = self.patch_size = (patch_size, patch_size)
-        self.grid_size = (image_height // patch_height, image_width // patch_width)
-        self.width = width
+        self.grid_size = (self.input_size // self.patch_size, self.input_size // self.patch_size)
 
         self.conv1 = nn.Conv2d(
             in_channels=3,
-            out_channels=width,
-            kernel_size=patch_size,
-            stride=patch_size,
+            out_channels=self.embed_dim,
+            kernel_size=self.patch_size,
+            stride=self.patch_size,
             bias=False,
         )
 
         # class embeddings and positional embeddings
-        scale = width**-0.5
-        self.class_embedding = nn.Parameter(scale * torch.randn(width))
+        scale = self.embed_dim**-0.5
+        self.class_embedding = nn.Parameter(scale * torch.randn(self.embed_dim))
         if pos_embed_type == "learnable":
             self.positional_embedding = nn.Parameter(
-                scale * torch.randn(self.grid_size[0] * self.grid_size[1] + 1, width)
+                scale * torch.randn(self.grid_size[0] * self.grid_size[1] + 1, self.embed_dim)
             )
         elif pos_embed_type == "sin_cos_2d":
             # fixed sin-cos embedding
@@ -399,11 +375,11 @@ class RemoteCLIP_Encoder(Encoder):
                 self.grid_size[0] == self.grid_size[1]
             ), "currently sin cos 2d pos embedding only supports square input"
             self.positional_embedding = nn.Parameter(
-                torch.zeros(self.grid_size[0] * self.grid_size[1] + 1, width),
+                torch.zeros(self.grid_size[0] * self.grid_size[1] + 1, self.embed_dim),
                 requires_grad=False,
             )
             pos_embed_type = get_2d_sincos_pos_embed(
-                width, self.grid_size[0], cls_token=True
+                self.embed_dim, self.grid_size[0], cls_token=True
             )
             self.positional_embedding.data.copy_(
                 torch.from_numpy(pos_embed_type).float()
@@ -416,15 +392,13 @@ class RemoteCLIP_Encoder(Encoder):
             PatchDropout(patch_dropout) if patch_dropout > 0.0 else nn.Identity()
         )
 
-        self.ln_pre = nn.Identity() if no_ln_pre else norm_layer(width)
+        self.ln_pre = nn.Identity() if no_ln_pre else norm_layer(self.embed_dim)
 
         # print(self.output_layers)
-        heads = width // head_width
         self.transformer = Transformer(
-            width,
-            layers,
-            heads,
-            self.output_layers,
+            self.embed_dim,
+            self.depth,
+            self.num_heads,
             mlp_ratio,
             ls_init_value=ls_init_value,
             act_layer=act_layer,
@@ -474,19 +448,8 @@ class RemoteCLIP_Encoder(Encoder):
 
         x = self.patch_dropout(x)
         x = self.ln_pre(x)
-        output = self.transformer(x)
+        output = self.transformer(x, output_layers=self.output_layers)
 
-        output = [
-            out[:, 1:]
-            .permute(0, 2, 1)
-            .view(
-                x.shape[0],
-                -1,
-                self.image_size[0] // self.patch_size[0],
-                self.image_size[1] // self.patch_size[1],
-            )
-            .contiguous()
-            for out in output
-        ]
+        output = [self.naive_reshape_to_2d(out) for out in output]
 
         return output

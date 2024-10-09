@@ -2,13 +2,11 @@ import torch
 from torch.utils.data import Dataset
 import os
 
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.engine.data_preprocessor import Preprocessor
 
 
-#from ..engine.data_preprocessor import BaseTransform
-#from hydra.utils import instantiate
 
-class GeoFMDataset(Dataset):
+class RawGeoFMDataset(Dataset):
     """Base class for all datasets."""
 
     def __init__(
@@ -30,7 +28,6 @@ class GeoFMDataset(Dataset):
         data_max: dict[str, list[str]],
         download_url: str,
         auto_download: bool,
-        preprocessor: BasePreprocessor = None
     ):
         """Initializes the dataset.
 
@@ -78,8 +75,6 @@ class GeoFMDataset(Dataset):
         self.data_max = data_max
         self.download_url = download_url
         self.auto_download = auto_download
-        self.preprocessor = preprocessor
-
 
 
         if not os.path.exists(self.root_path):
@@ -117,17 +112,6 @@ class GeoFMDataset(Dataset):
         """
         raise NotImplementedError
 
-    # def build_preprocessor(self, cfg, encoder):
-    #     preprocessor = InitTransform(dataset=self, encoder=encoder)
-    #     for preprocess in cfg:
-    #         preprocessor = instantiate(
-    #             preprocess, pre_transforms=preprocessor
-    #         )
-    #     self.preprocessor = preprocessor
-    #
-    # def set_preprocessor(self, transforms: BaseTransform) -> None:
-    #     self.transforms = transforms
-
     @staticmethod
     def download(self) -> None:
         """Download the dataset.
@@ -136,3 +120,59 @@ class GeoFMDataset(Dataset):
             NotImplementedError: raise if the method is not implemented
         """
         raise NotImplementedError
+
+
+class GeoFMDataset(Dataset):
+    """Base class for all datasets."""
+
+    def __init__(
+        self,
+        dataset: RawGeoFMDataset,
+        preprocessor: Preprocessor = None,
+    ):
+        """Initializes the dataset.
+
+        Args:
+
+        """
+        super().__init__()
+        self.__dict__.update(dataset.__dict__)
+        self.raw_dataset = dataset
+        self.preprocessor = preprocessor
+
+
+
+    def __len__(self) -> int:
+        """Returns the length of the dataset.
+
+        Returns:
+            int: length of the dataset
+        """
+
+        return len(self.raw_dataset)
+
+    def __getitem__(self, i: int) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
+        """Returns the i-th item of the dataset.
+
+        Args:
+            i (int): index of the item
+
+        Raises:
+            NotImplementedError: raise if the method is not implemented
+
+        Returns:
+            dict[str, torch.Tensor | dict[str, torch.Tensor]]: output dictionary follwing the format
+            {"image":
+                {
+                "optical": torch.Tensor of shape (C H W) (or (C T H W) if multi-temporal dataset),
+                 "sar": torch.Tensor of shape (C H W) (or (C T H W) if multi-temporal dataset)
+                 },
+            "target": torch.Tensor of shape (H W),
+             "metadata": dict}.
+        """
+
+        output = self.raw_dataset[i]
+        if self.preprocessor is not None:
+            output = self.preprocessor(output)
+
+        return output

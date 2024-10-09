@@ -39,14 +39,22 @@ class Encoder(nn.Module):
     def __init__(
         self,
         model_name: str,
-        input_bands: dict[str, list[str]],
-        input_size: int,
-        embed_dim: int,
-        output_dim: int,
-        multi_temporal: bool,
-        multi_temporal_fusion: bool,
         encoder_weights: str | Path,
         download_url: str,
+        input_size: int,
+        patch_size: int,
+        embed_dim: int,
+        depth: int,
+        num_heads: int,
+        output_dim: int,
+        has_cls_token: bool,
+        pyramid_features: bool,
+        multi_temporal: bool,
+        multi_temporal_fusion: bool,
+        naive_multi_forward_mode: str,
+        input_bands: dict[str, list[str]],
+        output_layers: list[int],
+
     ) -> None:
         """Initialize the Encoder.
 
@@ -65,11 +73,18 @@ class Encoder(nn.Module):
         self.model_name = model_name
         self.input_bands = input_bands
         self.input_size = input_size
+        self.patch_size = patch_size
         self.embed_dim = embed_dim
-        self.output_dim = output_dim
+        self.depth = depth
+        self.num_heads = num_heads
+        self.has_cls_token = has_cls_token
+        self.output_layers = output_layers
+        self.output_dim = [output_dim for _ in output_layers] if isinstance(output_dim, int) else output_dim
         self.encoder_weights = encoder_weights
+        self.pyramid_features = pyramid_features
         self.multi_temporal = multi_temporal
         self.multi_temporal_fusion = multi_temporal_fusion
+        self.naive_multi_forward_mode = naive_multi_forward_mode
         self.download_url = download_url
 
         # download_model if necessary
@@ -118,6 +133,22 @@ class Encoder(nn.Module):
         for param in self.parameters():
             param.requires_grad = False
 
+    def naive_reshape_to_2d(self, x, feat_size=None):
+        """B L C to B C (T) H W"""
+        if feat_size is None:
+            feat_size = self.input_size // self.patch_size
+        if self.has_cls_token:
+            x = x[:, 1:]
+        x = x.transpose(1, 2)
+        x = x.view(
+            x.shape[0],
+            x.shape[1],
+            -1,
+            feat_size,
+            feat_size
+        ).squeeze(2)
+        return x.contiguous()
+
     def simple_forward(self, img: dict[str, torch.Tensor]) -> list[torch.Tensor]:
         """Compute the forward pass of the encoder.
 
@@ -145,10 +176,19 @@ class Encoder(nn.Module):
 
     def naive_multi_temporal_forward(self, image: dict[str, torch.Tensor]) -> list[torch.Tensor]:
         b, c, t, h, w = image[list(image.keys())[0]].shape
-        image = {k: v.transpose(1, 2).contiguous().view(-1, c, 1, h, w) for k, v in image.items()}
 
-        feats = self.forward(image)
-        feats = [f.view(b, -1, f.shape[1], f.shape[2], f.shape[3]).transpose(1, 2) for f in feats]
+        if self.naive_multi_forward_mode == 'batch':
+            image = {k: v.transpose(1, 2).contiguous().view(-1, c, 1, h, w) for k, v in image.items()}
+            feats = self.forward(image)
+            feats = [f.view(b, -1, f.shape[1], f.shape[2], f.shape[3]).transpose(1, 2) for f in feats]
+        elif self.naive_multi_forward_mode == 'loop':
+            feats = []
+            for i in range(t):
+                feats.append(self.forward({k: v[:, :, i: i+1, :, :] for k, v in image.items()}))
+            feats = [list(i) for i in zip(*feats)]
+            feats = [torch.stack(feat_layers, dim=2) for feat_layers in feats]
+        else:
+            raise NotImplementedError("only support multi-temporal forward mode 'loop' and 'batch'")
 
         return feats
 

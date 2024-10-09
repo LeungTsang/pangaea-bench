@@ -31,6 +31,7 @@ class Trainer:
         ckpt_interval: int,
         eval_interval: int,
         log_interval: int,
+        best_metric_key: str,
     ):
         """Initialize the Trainer.
 
@@ -66,15 +67,17 @@ class Trainer:
         self.ckpt_interval = ckpt_interval
         self.eval_interval = eval_interval
         self.log_interval = log_interval
+        self.best_metric_key = best_metric_key
+
 
         self.training_stats = {
             name: RunningAverageMeter(length=self.batch_per_epoch)
             for name in ["loss", "data_time", "batch_time", "eval_time"]
         }
         self.training_metrics = {}
-        self.best_ckpt = None
         self.best_metric_key = None
         self.best_metric_comp = operator.gt
+        self.best_metric = float("-inf")
 
         assert precision in [
             "fp32",
@@ -87,44 +90,32 @@ class Trainer:
         self.scaler = torch.cuda.amp.GradScaler("cuda", enabled=self.enable_mixed_precision)
 
         self.start_epoch = 0
+        self.cur_epoch = self.start_epoch
 
     def train(self) -> None:
         """Train the model for n_epochs then evaluate the model and save the best model."""
         # end_time = time.time()
-        for epoch in range(self.start_epoch, self.n_epochs):
+        for self.cur_epoch in range(self.start_epoch, self.n_epochs):
+            # evaluate and save the model if outperforms the previous
+            if self.cur_epoch % self.eval_interval == 0:
+                self.evaluate_and_save_best()
+
             # train the network for one epoch
-            if epoch % self.eval_interval == 0:
-                metrics, used_time = self.evaluator(self.model, f"epoch {epoch}")
-                self.training_stats["eval_time"].update(used_time)
-                self.set_best_checkpoint(metrics, epoch)
+            self.train_one_epoch()
+            if self.cur_epoch % self.ckpt_interval == 0 and self.cur_epoch != self.start_epoch:
+                self.save_model(suffix=f"epoch{self.cur_epoch}")
 
-            self.logger.info("============ Starting epoch %i ... ============" % epoch)
-            # set sampler
-            self.t = time.time()
-            self.train_loader.sampler.set_epoch(epoch)
-            self.train_one_epoch(epoch)
-            if epoch % self.ckpt_interval == 0 and epoch != self.start_epoch:
-                self.save_model(epoch)
+        self.evaluate_and_save_best()
+        self.save_model(suffix="final")
 
-        metrics, used_time = self.evaluator(self.model, "final model")
-        self.training_stats["eval_time"].update(used_time)
-        self.set_best_checkpoint(metrics, self.n_epochs)
 
-        # save last model
-        self.save_model(self.n_epochs, is_final=True)
+    def train_one_epoch(self, ) -> None:
+        """Train model for one epoch."""
 
-        # save best model
-        if self.best_ckpt:
-            self.save_model(
-                self.best_ckpt["epoch"], is_best=True, checkpoint=self.best_ckpt
-            )
-
-    def train_one_epoch(self, epoch: int) -> None:
-        """Train model for one epoch.
-
-        Args:
-            epoch (int): number of the epoch.
-        """
+        self.logger.info("============ Starting epoch %i ... ============" % self.cur_epoch)
+        # set sampler
+        self.train_loader.sampler.set_epoch(self.cur_epoch)
+        # set train mode
         self.model.train()
 
         end_time = time.time()
@@ -142,17 +133,19 @@ class Trainer:
 
             self.optimizer.zero_grad()
 
-            if not torch.isnan(loss):
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-                self.training_stats['loss'].update(loss.item())
-                with torch.no_grad():
-                    self.compute_logging_metrics(logits, target)
-                if (batch_idx + 1) % self.log_interval == 0:
-                    self.log(batch_idx + 1, epoch)
-            else:
-                self.logger.warning("Skip batch {} because of nan loss".format(batch_idx + 1))
+            if not torch.isfinite(loss):
+                raise FloatingPointError(
+                    f"Rank {self.rank} got infinite/NaN loss at batch {batch_idx} of epoch {self.cur_epoch}!"
+                )
+
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.training_stats['loss'].update(loss.item())
+            with torch.no_grad():
+                self.compute_logging_metrics(logits, target)
+            if (batch_idx + 1) % self.log_interval == 0:
+                self.log(batch_idx + 1, self.cur_epoch)
 
             self.lr_scheduler.step()
 
@@ -161,7 +154,7 @@ class Trainer:
                     {
                         "train_loss": loss.item(),
                         "learning_rate": self.optimizer.param_groups[0]["lr"],
-                        "epoch": epoch,
+                        "epoch": self.cur_epoch,
                         **{
                             f"train_{k}": v.avg
                             for k, v in self.training_metrics.items()
@@ -172,30 +165,18 @@ class Trainer:
             self.training_stats["batch_time"].update(time.time() - end_time)
             end_time = time.time()
 
-    def get_checkpoint(self, epoch: int) -> dict[str, dict | int]:
-        """Create a checkpoint dictionary.
-
-        Args:
-            epoch (int): number of the epoch.
-
-        Returns:
-            dict[str, dict | int]: checkpoint dictionary.
-        """
-        checkpoint = {
-            "model": self.model.module.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
-            "lr_scheduler": self.lr_scheduler.state_dict(),
-            "scaler": self.scaler.state_dict(),
-            "epoch": epoch,
-        }
-        return copy.deepcopy(checkpoint)
+    def evaluate_and_save_best(self):
+        metrics, used_time = self.evaluator(self.model, f"epoch {self.cur_epoch}")
+        self.training_stats["eval_time"].update(used_time)
+        cur_metric = metrics[self.best_metric_key]
+        cur_metric = sum(cur_metric) / len(cur_metric) if isinstance(cur_metric, list) else cur_metric
+        if self.best_metric_comp(cur_metric, self.best_metric):
+            self.best_metric = metrics[self.best_metric_key]
+            self.save_model(suffix="best")
 
     def save_model(
         self,
-        epoch: int,
-        is_final: bool = False,
-        is_best: bool = False,
-        checkpoint: dict[str, dict | int] | None = None,
+        suffix: str = "",
     ):
         """Save the model checkpoint.
 
@@ -207,12 +188,20 @@ class Trainer:
         """
         if self.rank != 0:
             return
-        checkpoint = self.get_checkpoint(epoch) if checkpoint is None else checkpoint
-        suffix = "_best" if is_best else "_final" if is_final else ""
-        checkpoint_path = os.path.join(self.exp_dir, f"checkpoint_{epoch}{suffix}.pth")
+
+        checkpoint = {
+            "model": self.model.module.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "lr_scheduler": self.lr_scheduler.state_dict(),
+            "scaler": self.scaler.state_dict(),
+            "epoch": self.cur_epoch,
+        }
+
+        checkpoint_name = f"checkpoint_{suffix}.pth" if suffix else "checkpoint.pth"
+        checkpoint_path = os.path.join(self.exp_dir, checkpoint_name)
         torch.save(checkpoint, checkpoint_path)
         self.logger.info(
-            f"Epoch {epoch} | Training checkpoint saved at {checkpoint_path}"
+            f"Epoch {self.cur_epoch} | Training checkpoint saved at {checkpoint_path}"
         )
 
     def load_model(self, resume_path: str | pathlib.Path) -> None:
@@ -251,18 +240,6 @@ class Trainer:
         """
         raise NotImplementedError
 
-    def set_best_checkpoint(
-        self, eval_metrics: dict[float, list[float]], epoch: int
-    ) -> None:
-        """Update the best checkpoint according to the evaluation metrics.
-
-        Args:
-            eval_metrics (dict[float, list[float]]): metrics computed by the evaluator on the validation set.
-            epoch (int): number of the epoch.
-        """
-        if self.best_metric_comp(eval_metrics[self.best_metric_key], self.best_metric):
-            self.best_metric = eval_metrics[self.best_metric_key]
-            self.best_ckpt = self.get_checkpoint(epoch)
 
     @torch.no_grad()
     def compute_logging_metrics(

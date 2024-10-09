@@ -8,32 +8,14 @@ import rasterio
 import torch
 
 from pangaea.datasets.utils import download_bucket_concurrently
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.datasets.base import RawGeoFMDataset
 
-class Sen1Floods11(GeoFMDataset):
+class Sen1Floods11(RawGeoFMDataset):
 
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
         gcs_bucket: str,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the Sen1Floods11 dataset.
         Link: https://github.com/cloudtostreet/Sen1Floods11
@@ -69,31 +51,12 @@ class Sen1Floods11(GeoFMDataset):
 
         self.gcs_bucket = gcs_bucket
 
-        super(Sen1Floods11, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor
-        )
+        super(Sen1Floods11, self).__init__(**kwargs)
 
         
         self.split_mapping = {'train': 'train', 'val': 'valid', 'test': 'test'}
 
-        split_file = os.path.join(self.root_path, "v1.1", f"splits/flood_handlabeled/flood_{self.split_mapping[split]}_data.csv")
+        split_file = os.path.join(self.root_path, "v1.1", f"splits/flood_handlabeled/flood_{self.split_mapping[self.split]}_data.csv")
         metadata_file = os.path.join(self.root_path, "v1.1", "Sen1Floods11_Metadata.geojson")
         data_root = os.path.join(self.root_path, "v1.1", "data/flood_events/HandLabeled/")
 
@@ -153,8 +116,6 @@ class Sen1Floods11(GeoFMDataset):
                 "timestamp": timestamp,
             }
         }
-        if self.preprocessor is not None:
-            output = self.preprocessor(output)
 
         return output
 

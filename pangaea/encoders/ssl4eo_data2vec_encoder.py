@@ -355,17 +355,6 @@ class SSL4EO_Data2Vec_Encoder(Encoder):
 
     def __init__(
         self,
-        encoder_weights: str | Path,
-        input_size: int,
-        input_bands: dict[str, list[str]],
-        output_layers: int | list[int],
-        download_url: str,
-        in_chans: int = 3,
-        patch_size: int = 16,
-        # num_frames=3,
-        embed_dim: int = 768,
-        depth: int = 12,
-        num_heads: int = 12,
         mlp_ratio: float = 4.0,
         qkv_bias=True,
         qk_scale=None,
@@ -379,58 +368,47 @@ class SSL4EO_Data2Vec_Encoder(Encoder):
         use_rel_pos_bias=False,
         use_shared_rel_pos_bias=False,
         init_std=0.02,
+        **kwargs
     ):
-        super().__init__(
-            model_name="ssl4eo_data2vec",
-            encoder_weights=encoder_weights,
-            input_bands=input_bands,
-            input_size=input_size,
-            embed_dim=embed_dim,
-            output_dim=embed_dim,
-            multi_temporal=False,
-            multi_temporal_fusion=False,
-            download_url=download_url,
-        )
+        super().__init__(**kwargs)
 
-        self.output_layers = output_layers
-        self.num_features = self.embed_dim = (
-            embed_dim  # num_features for consistency with other models
-        )
+        self.in_chans = sum([len(v) for v in self.input_bands.values()])
+
+        #self.num_features = self.embed_dim = (
+        #    self.embed_dim  # num_features for consistency with other models
+        #)
 
         self.patch_embed = PatchEmbed(
             img_size=self.input_size,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            embed_dim=embed_dim,
+            patch_size=self.patch_size,
+            in_chans=self.in_chans,
+            embed_dim=self.embed_dim,
         )
         num_patches = self.patch_embed.num_patches
 
-        self.img_size = self.input_size
-        self.patch_size = patch_size
-
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
         if use_abs_pos_emb:
-            self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+            self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, self.embed_dim))
         else:
             self.pos_embed = None
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         if use_shared_rel_pos_bias:
             self.rel_pos_bias = RelativePositionBias(
-                window_size=self.patch_embed.patch_shape, num_heads=num_heads
+                window_size=self.patch_embed.patch_shape, num_heads=self.num_heads
             )
         else:
             self.rel_pos_bias = None
 
         dpr = [
-            x.item() for x in torch.linspace(0, drop_path_rate, depth)
+            x.item() for x in torch.linspace(0, drop_path_rate, self.depth)
         ]  # stochastic depth decay rule
         self.blocks = nn.ModuleList(
             [
                 Block(
-                    dim=embed_dim,
-                    num_heads=num_heads,
+                    dim=self.embed_dim,
+                    num_heads=self.num_heads,
                     mlp_ratio=mlp_ratio,
                     qkv_bias=qkv_bias,
                     qk_scale=qk_scale,
@@ -444,10 +422,10 @@ class SSL4EO_Data2Vec_Encoder(Encoder):
                     else None,
                     attn_head_dim=attn_head_dim,
                 )
-                for i in range(depth)
+                for i in range(self.depth)
             ]
         )
-        self.norm = norm_layer(embed_dim)
+        self.norm = norm_layer(self.embed_dim)
 
         self.init_std = init_std
 
@@ -503,17 +481,7 @@ class SSL4EO_Data2Vec_Encoder(Encoder):
         for i, blk in enumerate(self.blocks):
             x, fc_feature = blk(x, rel_pos_bias=rel_pos_bias)
             if i in self.output_layers:
-                out = (
-                    x[:, 1:]
-                    .permute(0, 2, 1)
-                    .view(
-                        x.shape[0],
-                        -1,
-                        self.img_size // self.patch_size,
-                        self.img_size // self.patch_size,
-                    )
-                    .contiguous()
-                )
+                out = self.naive_reshape_to_2d(x)
                 output.append(out)
 
         return output

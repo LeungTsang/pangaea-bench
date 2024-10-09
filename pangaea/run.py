@@ -16,7 +16,8 @@ from torch.utils.data.distributed import DistributedSampler
 
 from pangaea.decoders.base import Decoder
 from pangaea.encoders.base import Encoder
-from pangaea.engine.data_preprocessor import build_preprocessor
+from pangaea.datasets.base import RawGeoFMDataset, GeoFMDataset
+from pangaea.engine.data_preprocessor import Preprocessor
 from pangaea.engine.evaluator import Evaluator
 from pangaea.engine.trainer import Trainer
 from pangaea.utils.collate_fn import get_collate_fn
@@ -57,13 +58,13 @@ def main(cfg: DictConfig) -> None:
     fix_seed(cfg.seed)
     # distributed training variables
     rank = int(os.environ["RANK"])
-    cfg.task.trainer.use_wandb = cfg.task.trainer.use_wandb and rank == 0
-    cfg.task.evaluator.use_wandb = cfg.task.evaluator.use_wandb and rank == 0
     local_rank = int(os.environ["LOCAL_RANK"])
     device = torch.device("cuda", local_rank)
 
     torch.cuda.set_device(device)
     torch.distributed.init_process_group(backend="nccl")
+
+    use_wandb_this_rank = cfg.use_wandb and rank == 0
 
     # true if training else false
     train_run = cfg.train
@@ -75,8 +76,7 @@ def main(cfg: DictConfig) -> None:
         config_log_dir = exp_dir / "configs"
         config_log_dir.mkdir(exist_ok=True)
         # init wandb
-        if cfg.task.trainer.use_wandb:
-
+        if use_wandb_this_rank:
             wandb_cfg = OmegaConf.to_container(cfg, resolve=True)
             wandb.init(
                 project="geofm-bench",
@@ -93,7 +93,7 @@ def main(cfg: DictConfig) -> None:
         # load training config
         cfg_path = exp_dir / "configs" / "config.yaml"
         cfg = OmegaConf.load(cfg_path)
-        if cfg.task.trainer.use_wandb:
+        if use_wandb_this_rank:
 
             wandb_cfg = OmegaConf.to_container(cfg, resolve=True)
             wandb.init(
@@ -110,12 +110,14 @@ def main(cfg: DictConfig) -> None:
     logger.info("The experiment is stored in %s\n" % exp_dir)
     logger.info(f"Device used: {device}")
 
-    train_preprocessor = build_preprocessor(cfg.preprocessing.train, cfg.dataset, cfg.encoder)
-    val_preprocessor = build_preprocessor(cfg.preprocessing.test, cfg.dataset, cfg.encoder)
+    train_preprocessor = instantiate(cfg.preprocessing.train, dataset_cfg=cfg.dataset, encoder_cfg=cfg.encoder, _recursive_=False)
+    val_preprocessor = instantiate(cfg.preprocessing.val, dataset_cfg=cfg.dataset, encoder_cfg=cfg.encoder, _recursive_=False)
 
     # get datasets
-    train_dataset: Dataset = instantiate(cfg.dataset, split="train", preprocessor=train_preprocessor)
-    val_dataset: Dataset = instantiate(cfg.dataset, split="val", preprocessor=val_preprocessor)
+    raw_train_dataset: RawGeoFMDataset = instantiate(cfg.dataset, split="train")
+    raw_val_dataset: RawGeoFMDataset = instantiate(cfg.dataset, split="val")
+    train_dataset = GeoFMDataset(raw_train_dataset, train_preprocessor)
+    val_dataset = GeoFMDataset(raw_val_dataset, val_preprocessor)
     logger.info("Built {} dataset.".format(cfg.dataset.dataset_name))
 
     encoder: Encoder = instantiate(cfg.encoder)
@@ -129,7 +131,7 @@ def main(cfg: DictConfig) -> None:
     )
     decoder.to(device)
     decoder = torch.nn.parallel.DistributedDataParallel(
-        decoder, device_ids=[local_rank], output_device=local_rank
+        decoder, device_ids=[local_rank], output_device=local_rank,
     )
     logger.info(
         "Built {} for with {} encoder.".format(
@@ -190,7 +192,7 @@ def main(cfg: DictConfig) -> None:
         )
 
         val_evaluator: Evaluator = instantiate(
-            cfg.task.evaluator, val_loader=val_loader, exp_dir=exp_dir, device=device
+            cfg.task.evaluator, val_loader=val_loader, exp_dir=exp_dir, device=device, use_wandb=use_wandb_this_rank
         )
         trainer: Trainer = instantiate(
             cfg.task.trainer,
@@ -202,6 +204,7 @@ def main(cfg: DictConfig) -> None:
             evaluator=val_evaluator,
             exp_dir=exp_dir,
             device=device,
+            use_wandb=use_wandb_this_rank
         )
         # resume training if model_checkpoint is provided
         if cfg.ckpt_dir is not None:
@@ -210,8 +213,11 @@ def main(cfg: DictConfig) -> None:
         trainer.train()
 
     # Evaluation
-    test_preprocessor = build_preprocessor(cfg.preprocessing.test, cfg.dataset, cfg.encoder)
-    test_dataset: Dataset = instantiate(cfg.dataset, split="test", preprocessor=test_preprocessor)
+    test_preprocessor = instantiate(cfg.preprocessing.test, dataset_cfg=cfg.dataset, encoder_cfg=cfg.encoder, _recursive_=False)
+
+    # get datasets
+    raw_test_dataset: RawGeoFMDataset = instantiate(cfg.dataset, split="test")
+    test_dataset = GeoFMDataset(raw_test_dataset, test_preprocessor)
 
     test_loader = DataLoader(
         test_dataset,
@@ -224,12 +230,12 @@ def main(cfg: DictConfig) -> None:
         collate_fn=collate_fn,
     )
     test_evaluator: Evaluator = instantiate(
-        cfg.task.evaluator, val_loader=test_loader, exp_dir=exp_dir, device=device
+        cfg.task.evaluator, val_loader=test_loader, exp_dir=exp_dir, device=device, use_wandb=use_wandb_this_rank
     )
     best_model_ckpt_path = get_best_model_ckpt_path(exp_dir)
     test_evaluator.evaluate(decoder, "best_model", best_model_ckpt_path)
 
-    if cfg.use_wandb and rank == 0:
+    if use_wandb_this_rank:
         wandb.finish()
 
 

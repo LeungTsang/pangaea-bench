@@ -5,8 +5,7 @@ import pathlib
 import rasterio
 from tifffile import imread
 
-from pangaea.datasets.base import GeoFMDataset
-from pangaea.engine.data_preprocessor import BasePreprocessor
+from pangaea.datasets.base import RawGeoFMDataset
 
 def read_imgs(multi_temporal, temp , fname, data_dir, img_size):
     imgs_s1, imgs_s2, mask = [], [], []
@@ -48,28 +47,11 @@ def read_imgs(multi_temporal, temp , fname, data_dir, img_size):
     imgs_s2 = np.stack(imgs_s2, axis=1)
     return imgs_s1, imgs_s2, mask
 
-class BioMassters(GeoFMDataset):
+class BioMassters(RawGeoFMDataset):
     def __init__(
         self,
-        split: str,
-        dataset_name: str,
-        multi_modal: bool,
-        multi_temporal: int,
-        root_path: str,
-        classes: list,
-        num_classes: int,
-        ignore_index: int,
-        img_size: int,
-        bands: dict[str, list[str]],
-        distribution: list[int],
-        data_mean: dict[str, list[str]],
-        data_std: dict[str, list[str]],
-        data_min: dict[str, list[str]],
-        data_max: dict[str, list[str]],
-        download_url: str,
-        auto_download: bool,
         temp: int,
-        preprocessor: BasePreprocessor = None
+        **kwargs
     ):
         """Initialize the BioMassters dataset.
         Link: https://huggingface.co/datasets/nascetti-a/BioMassters
@@ -102,32 +84,14 @@ class BioMassters(GeoFMDataset):
             auto_download (bool): whether to download the dataset automatically.
             temp (int): which temporal frame to use when using single temporal.
         """
-        super(BioMassters, self).__init__(
-            split=split,
-            dataset_name=dataset_name,
-            multi_modal=multi_modal,
-            multi_temporal=multi_temporal,
-            root_path=root_path,
-            classes=classes,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-            img_size=img_size,
-            bands=bands,
-            distribution=distribution,
-            data_mean=data_mean,
-            data_std=data_std,
-            data_min=data_min,
-            data_max=data_max,
-            download_url=download_url,
-            auto_download=auto_download,
-            preprocessor=preprocessor,
-        )
+        super(BioMassters, self).__init__(**kwargs)
 
+        self.temp = temp
         
-        self.data_path = pathlib.Path(self.root_path).joinpath(f"{split}_Data_list.csv")
+        self.data_path = pathlib.Path(self.root_path).joinpath(f"{self.split}_Data_list.csv")
         self.id_list = pd.read_csv(self.data_path)['chip_id']
         
-        self.split_path = 'train' if split == 'val' else split
+        self.split_path = 'train' if self.split == 'val' else self.split
         self.dir_features = pathlib.Path(self.root_path).joinpath(f'{self.split_path}_features')
         self.dir_labels = pathlib.Path(self.root_path).joinpath( f'{self.split_path}_agbm')
 
@@ -156,9 +120,6 @@ class BioMassters(GeoFMDataset):
             "target": target,
             "metadata": {},
         }
-
-        if self.preprocessor is not None:
-            output = self.preprocessor(output)
 
         return output
 
