@@ -76,7 +76,7 @@ class Trainer:
             for name in ["loss", "data_time", "batch_time", "eval_time"]
         }
         self.training_metrics = {}
-        self.best_metric_key = None
+        self.best_metric_key = best_metric_key
         self.best_metric_comp = operator.gt
         self.best_metric = float("-inf")
 
