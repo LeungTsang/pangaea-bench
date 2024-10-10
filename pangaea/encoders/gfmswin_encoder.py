@@ -653,7 +653,7 @@ class GFMSwin_Encoder(Encoder):
         self.patch_embed = PatchEmbed(
             img_size=self.input_size,
             patch_size=self.patch_size,
-            in_chans=in_chans,
+            in_chans=self.in_chans,
             embed_dim=self.embed_dim,
             norm_layer=norm_layer if self.patch_norm else None,
         )
@@ -752,7 +752,7 @@ class GFMSwin_Encoder(Encoder):
             x = layer(x)
             B, L, C = x.shape
             if i in self.output_layers:
-                out = self.default_reshape_to_2d(x, feat_size=int(L**0.5))
+                out = self.naive_reshape_to_2d(x, feat_size=int(L**0.5))
                 #print(out.shape)
                 output.append(out)
 
