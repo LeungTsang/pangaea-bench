@@ -45,5 +45,5 @@ output_layers:
   - 7
   - 11
 
-output_dim: 768   # 768 * (in_chans / t_patch_size)
+output_dim: 3072   # 768 * (in_chans / t_patch_size)
 
