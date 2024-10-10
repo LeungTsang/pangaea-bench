@@ -177,7 +177,7 @@ class Trainer:
             else:
                 cur_metric = sum(cur_metric) / len(cur_metric) if isinstance(cur_metric, list) else cur_metric
         if self.best_metric_comp(cur_metric, self.best_metric):
-            self.best_metric = metrics[self.best_metric_key]
+            self.best_metric = cur_metric
             self.save_model(suffix="best")
 
     def save_model(
